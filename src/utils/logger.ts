@@ -12,7 +12,7 @@ export const log = {
   info: (msg: string): void => console.log(msg),
   muted: (msg: string): void => console.log(chalk.gray(msg)),
 
-  /** Comando que o aluno deve copiar/executar. Em cyan, sem prefixo. */
+  /** Comando que o usuário deve copiar/executar. Em cyan, sem prefixo. */
   command: (cmd: string): void => console.log(chalk.cyan(cmd)),
 
   /** URL pra clicar/copiar. Azul sublinhado. */

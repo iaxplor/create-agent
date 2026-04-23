@@ -17,13 +17,13 @@ export interface TemplateJson {
   }>;
 }
 
-/** Metadados de um módulo instalado no projeto do aluno. */
+/** Metadados de um módulo instalado no projeto. */
 export interface InstalledModule {
   version: string;
   installedAt: string;
 }
 
-/** Schema de `agente.config.json` gravado na raiz do projeto do aluno. */
+/** Schema de `agente.config.json` gravado na raiz do projeto. */
 export interface AgenteConfig {
   name: string;
   version: string;

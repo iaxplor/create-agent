@@ -1,6 +1,6 @@
 # `@iaxplor/create-agent`
 
-CLI oficial da [IAxplor](https://iaxplor.com) para criar projetos de agente de IA para atendimento via WhatsApp a partir do template `core` em [`iaxplor/agent-templates`](https://github.com/iaxplor/agent-templates).
+CLI para criar projetos Python de agente de IA (FastAPI + Postgres + Redis + Agno) a partir do template `core` em [`iaxplor/agent-templates`](https://github.com/iaxplor/agent-templates). Otimizado para agentes de atendimento via WhatsApp com deploy em Docker Compose.
 
 ## Uso
 
@@ -14,9 +14,9 @@ O CLI vai:
 2. Baixar o template `core` direto do GitHub
 3. Gerar `agente.config.json` (metadados do projeto)
 4. Rodar `git init` na pasta criada
-5. Mostrar os próximos passos (configurar `.env`, criar repo no GitHub, deploy no Dokploy)
+5. Mostrar os próximos passos (configurar `.env`, criar repo no GitHub, deploy)
 
-Depois disso, o aluno edita o código no Cursor ou Claude Code, faz `git push`, e o Dokploy na VPS dele faz auto-deploy.
+Após criação, configure as variáveis de ambiente (`.env`) e faça o deploy da forma que preferir.
 
 ## Regras de nome do projeto
 
@@ -78,7 +78,7 @@ O script `prepublishOnly` já garante que o build roda antes do publish.
 ```
 src/
 ├── commands/
-│   └── create.ts          # comando "create" (este repo, nesta versão)
+│   └── create.ts          # comando "create"
 ├── utils/
 │   ├── banner.ts          # banner ASCII na abertura
 │   ├── errors.ts          # UserError / InternalError + handler global
@@ -89,8 +89,6 @@ src/
 ├── types.ts               # TemplateJson, AgenteConfig
 └── index.ts               # entrypoint (shebang + commander)
 ```
-
-Comandos futuros (`add`, `list`, `update`) entram como novos arquivos em `src/commands/` sem refactor da base.
 
 ## Licença
 

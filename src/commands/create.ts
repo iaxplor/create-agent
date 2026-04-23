@@ -94,7 +94,7 @@ async function writeAgenteConfig(args: {
   const { targetDir, projectName, templateJson } = args;
 
   // python.version: tenta template.json.python_version; se ausente/inválido,
-  // cai pro default e avisa o aluno (não quebra o fluxo).
+  // cai pro default e avisa (não quebra o fluxo).
   let pythonVersion = templateJson.python_version;
   if (!pythonVersion || typeof pythonVersion !== "string") {
     log.warn(

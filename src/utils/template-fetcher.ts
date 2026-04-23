@@ -1,5 +1,5 @@
 // Orquestra o download do template `core/` do repositório `agent-templates`
-// e a cópia dos arquivos pro diretório do projeto do aluno.
+// e a cópia dos arquivos pro diretório do projeto final.
 //
 // Fluxo:
 //   1. `downloadTemplate` do giget puxa `core/` completo para um temp dir.
@@ -69,7 +69,7 @@ export async function fetchCoreTemplate(targetDir: string): Promise<TemplateJson
     }
 
     // Copia `files/*` pro diretório final. `files/` é a subpasta que contém a
-    // árvore exata que vai pro projeto do aluno.
+    // árvore exata que vai pro projeto final.
     const filesDir = path.join(tmpDir, "files");
     if (!(await pathExists(filesDir))) {
       throw new InternalError(
