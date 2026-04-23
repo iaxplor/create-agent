@@ -2,7 +2,7 @@
 // validação de nome ficam aqui, não espalhadas pelo código.
 
 /** Versão do próprio CLI, exibida no banner e no `--version`. */
-export const CLI_VERSION = "0.2.0";
+export const CLI_VERSION = "0.3.0";
 
 /** Repositório dos templates (sem `github:` na frente — o giget adiciona). */
 export const TEMPLATES_REPO = "iaxplor/agent-templates";
@@ -21,6 +21,13 @@ export const CORE_TEMPLATE_PATH = "core";
  *  baixa `modules/{name}/` sob demanda.
  */
 export const MODULES_PATH = "modules";
+
+// --- Delimitadores de bloco no .env.example -------------------------------
+// Permitem detectar+substituir blocos de módulo em reinstalações sem duplicar.
+export const envBlockStart = (name: string, version: string): string =>
+  `# --- ${name} (${version}) ---`;
+export const envBlockEnd = (name: string): string =>
+  `# --- Fim ${name} ---`;
 
 /** Arquivo que o CLI grava na raiz do projeto novo com o estado atual. */
 export const AGENTE_CONFIG_FILENAME = "agente.config.json";

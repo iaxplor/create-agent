@@ -49,7 +49,13 @@ O comando:
 - `--yes` — aceita automaticamente sobrescrever arquivos em conflito (útil em CI)
 - `--template-source <url>` — override do repo base (default: `github:iaxplor/agent-templates`)
 
-**Patches manuais**: o CLI **não** modifica automaticamente arquivos existentes no projeto (`api/main.py`, `workers/arq_worker.py`, `core/config.py`). Cada módulo documenta seus patches em um arquivo `<NOME>_SETUP.md` que é copiado junto — a última mensagem do comando orienta qual abrir.
+**Automações aplicadas automaticamente** (v0.3.0+):
+
+1. **`.env.example`**: adiciona bloco delimitado com as env vars do módulo (defaults preenchidos, obrigatórias vazias). Re-instalação de versão diferente **substitui** o bloco antigo — nunca duplica. Vars que já existem fora do bloco geram warning.
+2. **`pyproject.toml`**: adiciona as dependências Python novas em `[project].dependencies` preservando comentários e formato. Deps já presentes são puladas; conflitos de versão geram warning **sem** sobrescrever.
+3. **`agente.config.json`**: registra o módulo instalado em `modules.<name>`.
+
+**Patches manuais**: o CLI **não** modifica automaticamente arquivos existentes do projeto (`api/main.py`, `workers/arq_worker.py`, `core/config.py`). Cada módulo documenta seus patches em um arquivo `<NOME>_SETUP.md` que é copiado junto. A mensagem final do comando inclui um prompt pronto pra colar em IDE com IA (Cursor, Claude Code, Copilot) — aplica os patches em 1 comando.
 
 ## Convenção de nomenclatura de módulos
 
@@ -59,6 +65,13 @@ Módulos novos devem seguir estas convenções:
 - **Arquivo de setup**: `{NOME_MODULO_UPPERCASE}_SETUP.md` (ex.: `EVOLUTION_SETUP.md`, `CRM_PLUGAZAP_SETUP.md`) — evita colisão quando múltiplos módulos forem instalados no mesmo projeto
 - **`template.json` obrigatório** com campos: `name`, `version`, `description`, `requires`, `min_core_version`, `dependencies`, `env_vars`, `files`, `patches`
 - **Arquivos em `files/`** dentro do módulo, mapeados pra destinos no projeto via `files[]` do `template.json`
+
+**Campos opcionais úteis em `template.json`:**
+
+- `setup_doc: string` — caminho do arquivo de setup (ex.: `"EVOLUTION_SETUP.md"`). Se ausente, o CLI detecta por convenção (primeiro `*_SETUP.md` em `files[]`).
+- `env_vars[].default: string` — valor pré-preenchido pra variáveis opcionais no `.env.example`. Ausente = linha vazia (`VAR=`).
+
+Templates antigos sem esses campos continuam funcionando — degradação graciosa.
 
 Veja [`iaxplor/agent-templates/modules/evolution-api/`](https://github.com/iaxplor/agent-templates/tree/main/modules/evolution-api) como referência.
 

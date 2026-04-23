@@ -2,11 +2,18 @@
 // ou campos opcionais quando faz sentido) pra acompanhar evolução do
 // template.json sem obrigar bump do CLI a cada campo novo.
 
-/** Definição de uma variável de ambiente usada por um template/módulo. */
+/** Definição de uma variável de ambiente usada por um template/módulo.
+ *
+ *  `default` é opcional — quando presente, o CLI usa esse valor no
+ *  `.env.example` gerado automaticamente. Quando ausente (ex.: template.json
+ *  legado, publicado antes do CLI v0.3.0), o CLI deixa o valor vazio
+ *  (`VAR_NAME=`) e continua funcionando — degradação graciosa.
+ */
 export interface EnvVarDefinition {
   name: string;
   description?: string;
   required?: boolean;
+  default?: string;
 }
 
 /** Schema de `core/template.json` no repositório de templates. */
@@ -43,6 +50,11 @@ export interface PatchDescription {
  *  Superset do `TemplateJson`: módulos declaram requisitos (`requires`,
  *  `min_core_version`), mapeamento explícito de arquivos (`files[]`) e
  *  patches manuais (`patches[]`).
+ *
+ *  `setup_doc` é opcional — se presente, aponta pro arquivo de setup do módulo
+ *  (relativo à raiz do projeto após cópia, ex.: `"EVOLUTION_SETUP.md"`). Se
+ *  ausente, o CLI tenta detectar por convenção (primeiro arquivo `*_SETUP.md`
+ *  em `files[]`).
  */
 export interface ModuleTemplateJson {
   name: string;
@@ -54,6 +66,7 @@ export interface ModuleTemplateJson {
   env_vars: EnvVarDefinition[];
   files: FileMapping[];
   patches: PatchDescription[];
+  setup_doc?: string;
 }
 
 /** Plano expandido de cópia — o que `file-installer` gera antes de escrever. */
@@ -68,6 +81,34 @@ export interface InstallPlan {
 export interface InstallResult {
   copiedCount: number;
   dryRun: boolean;
+}
+
+/** Resultado da automação do .env.example — consumido pela mensagem final. */
+export interface EnvExampleChanges {
+  /** `true` se conseguiu aplicar; `false` se falhou (mensagem fala em fallback). */
+  applied: boolean;
+  /** `true` se o arquivo foi criado do zero (não existia). */
+  created: boolean;
+  /** `true` se já existia bloco desse módulo e foi substituído. */
+  replaced: boolean;
+  /** Número de env vars gravadas no bloco. */
+  varCount: number;
+  /** Nomes de env vars que já existiam FORA do bloco (warning). */
+  outOfBlockDuplicates: string[];
+  /** Mensagem de erro humano-lido quando `applied === false`. */
+  errorMessage?: string;
+}
+
+/** Resultado da automação do pyproject.toml. */
+export interface PyprojectChanges {
+  applied: boolean;
+  /** Deps efetivamente adicionadas (nomes sem constraint). */
+  added: string[];
+  /** Deps que já existiam com mesma versão — puladas, nenhum warning. */
+  alreadyPresent: string[];
+  /** Deps existentes com constraint diferente — NÃO sobrescritas, warning. */
+  versionConflicts: Array<{ name: string; existing: string; requested: string }>;
+  errorMessage?: string;
 }
 
 /** Metadados de um módulo instalado no projeto. */

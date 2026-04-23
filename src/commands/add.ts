@@ -21,10 +21,12 @@ import {
   recordInstalledModule,
 } from "../utils/config-reader.js";
 import { confirm } from "../utils/confirm.js";
+import { updateEnvExample } from "../utils/env-example-editor.js";
 import { UserError } from "../utils/errors.js";
 import { executeInstall, planInstall } from "../utils/file-installer.js";
 import { printInstallSuccess } from "../utils/final-instructions.js";
 import { createSpinner, log } from "../utils/logger.js";
+import { updatePyproject } from "../utils/pyproject-editor.js";
 import {
   cleanupModuleTemp,
   fetchModuleToTemp,
@@ -160,13 +162,64 @@ export async function addCommand(
       );
     }
 
-    // 9) Mensagem final ----------------------------------------------------
-    const setupFilename = detectSetupFilename(plan);
+    // 9) Atualiza .env.example (automação 1) ------------------------------
+    //    Não aborta em caso de erro — só loga e propaga pra mensagem final.
+    const envChanges = await updateEnvExample({
+      projectDir: cwd,
+      manifest,
+      dryRun,
+    });
+    if (envChanges.applied) {
+      log.muted(
+        `.env.example ${envChanges.created ? "criado" : envChanges.replaced ? "atualizado (bloco existente substituído)" : "atualizado (bloco adicionado)"}`,
+      );
+      if (envChanges.outOfBlockDuplicates.length > 0) {
+        for (const varName of envChanges.outOfBlockDuplicates) {
+          log.warn(
+            `${varName} já existe fora do bloco do módulo. Verifique duplicação.`,
+          );
+        }
+      }
+    } else {
+      log.warn(
+        `Não foi possível atualizar .env.example automaticamente: ${envChanges.errorMessage ?? "erro desconhecido"}`,
+      );
+    }
+
+    // 10) Atualiza pyproject.toml (automação 2) ---------------------------
+    const pyprojectChanges = await updatePyproject({
+      projectDir: cwd,
+      dependencies: manifest.dependencies,
+      dryRun,
+    });
+    if (pyprojectChanges.applied) {
+      if (pyprojectChanges.added.length > 0) {
+        log.muted(
+          `pyproject.toml: ${pyprojectChanges.added.length} dep(s) adicionada(s)`,
+        );
+      }
+      for (const conflict of pyprojectChanges.versionConflicts) {
+        log.warn(
+          `${conflict.name} já existe em pyproject.toml com constraint ` +
+            `'${conflict.existing}'. Módulo requer '${conflict.requested}'. ` +
+            `Verifique compatibilidade manualmente.`,
+        );
+      }
+    } else {
+      log.warn(
+        `Não foi possível atualizar pyproject.toml automaticamente: ${pyprojectChanges.errorMessage ?? "erro desconhecido"}`,
+      );
+    }
+
+    // 11) Mensagem final ---------------------------------------------------
+    const setupFilename = manifest.setup_doc ?? detectSetupFilename(plan);
     printInstallSuccess({
       manifest,
       copiedCount: result.copiedCount,
       setupFilename,
       dryRun,
+      envChanges,
+      pyprojectChanges,
     });
   } finally {
     // Sempre limpa o temp, mesmo em caso de erro.

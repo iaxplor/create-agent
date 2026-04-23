@@ -65,6 +65,13 @@ function validateManifest(raw: unknown): ModuleTemplateJson {
     validatePatch(p, i),
   );
 
+  // Campo opcional — presente a partir da convenção v0.3.0 do CLI.
+  // Templates legados (sem setup_doc) funcionam normalmente via convenção.
+  const setupDoc =
+    typeof raw.setup_doc === "string" && raw.setup_doc.length > 0
+      ? raw.setup_doc
+      : undefined;
+
   return {
     name,
     version,
@@ -75,6 +82,7 @@ function validateManifest(raw: unknown): ModuleTemplateJson {
     env_vars: envVars,
     files,
     patches,
+    setup_doc: setupDoc,
   };
 }
 
@@ -92,7 +100,10 @@ function validateEnvVar(
   const name = requireString(raw, "name", `env_vars[${index}]`);
   const description = typeof raw.description === "string" ? raw.description : undefined;
   const required = typeof raw.required === "boolean" ? raw.required : undefined;
-  return { name, description, required };
+  // Campo opcional (v0.3.0+). Templates legados sem `default` → undefined,
+  // e o env-example-editor gera linha vazia (`VAR=`). Degradação graciosa.
+  const defaultValue = typeof raw.default === "string" ? raw.default : undefined;
+  return { name, description, required, default: defaultValue };
 }
 
 function validateFileMapping(raw: unknown, index: number): FileMapping {
