@@ -1,0 +1,14 @@
+# Defesa em profundidade — `files` no package.json já delimita o publicado,
+# mas mantemos este aqui pra evitar acidentes se alguém remover `files`.
+src/
+node_modules/
+.git/
+.gitignore
+.prettierrc
+.prettierignore
+.eslintrc*
+eslint.config.js
+tsconfig.json
+tsup.config.ts
+.github/
+*.log
