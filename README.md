@@ -1,6 +1,6 @@
 # `@iaxplor/create-agent`
 
-CLI oficial da [IAxplor](https://iaxplor.com.br) para criar projetos de agente de IA para atendimento via WhatsApp a partir do template `core` em [`iaxplor/agent-templates`](https://github.com/iaxplor/agent-templates).
+CLI oficial da [IAxplor](https://iaxplor.com) para criar projetos de agente de IA para atendimento via WhatsApp a partir do template `core` em [`iaxplor/agent-templates`](https://github.com/iaxplor/agent-templates).
 
 ## Uso
 
