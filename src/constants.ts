@@ -2,7 +2,7 @@
 // validação de nome ficam aqui, não espalhadas pelo código.
 
 /** Versão do próprio CLI, exibida no banner e no `--version`. */
-export const CLI_VERSION = "0.1.1";
+export const CLI_VERSION = "0.2.0";
 
 /** Repositório dos templates (sem `github:` na frente — o giget adiciona). */
 export const TEMPLATES_REPO = "iaxplor/agent-templates";
@@ -16,6 +16,11 @@ export const TEMPLATES_BRANCH = "main";
  * temporário; o fluxo em `template-fetcher.ts` separa os dois.
  */
 export const CORE_TEMPLATE_PATH = "core";
+
+/** Caminho da pasta `modules/` dentro do repo de templates. O comando `add`
+ *  baixa `modules/{name}/` sob demanda.
+ */
+export const MODULES_PATH = "modules";
 
 /** Arquivo que o CLI grava na raiz do projeto novo com o estado atual. */
 export const AGENTE_CONFIG_FILENAME = "agente.config.json";

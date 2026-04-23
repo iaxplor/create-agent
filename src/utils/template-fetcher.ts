@@ -18,6 +18,7 @@ import { downloadTemplate } from "giget";
 
 import {
   CORE_TEMPLATE_PATH,
+  MODULES_PATH,
   TEMPLATES_BRANCH,
   TEMPLATES_REPO,
 } from "../constants.js";
@@ -85,4 +86,58 @@ export async function fetchCoreTemplate(targetDir: string): Promise<TemplateJson
       // Falha de limpeza não é bloqueante — next run do giget tolera.
     });
   }
+}
+
+/** Baixa um MÓDULO (`modules/<name>/`) do repo de templates pra um diretório
+ *  temporário e retorna o path. O caller é responsável por ler o `template.json`
+ *  de lá e copiar os arquivos conforme o mapping — ver `file-installer.ts`.
+ *
+ *  Diferente de `fetchCoreTemplate`, esta função NÃO copia nada pro projeto
+ *  final — só baixa. A cópia seletiva acontece em etapa posterior após
+ *  validação de compatibilidade e detecção de conflitos.
+ *
+ *  `templateSource` permite sobrescrever o repo base (flag `--template-source`
+ *  do comando `add`). Default: `github:iaxplor/agent-templates`.
+ *
+ *  Retorna o path absoluto do diretório temp. Caller DEVE chamar
+ *  `cleanupModuleTemp(path)` quando terminar.
+ */
+export async function fetchModuleToTemp(
+  moduleName: string,
+  opts?: { templateSource?: string },
+): Promise<string> {
+  const tmpDir = await mkdtemp(
+    path.join(os.tmpdir(), `iaxplor-add-${moduleName}-`),
+  );
+
+  const base = opts?.templateSource ?? `github:${TEMPLATES_REPO}`;
+  // `base/modules/<name>#branch` — giget aceita subpath via `/`.
+  const source = `${base}/${MODULES_PATH}/${moduleName}#${TEMPLATES_BRANCH}`;
+
+  try {
+    await downloadTemplate(source, {
+      dir: tmpDir,
+      force: true,
+    });
+  } catch (err) {
+    // Limpa o temp antes de propagar.
+    await remove(tmpDir).catch(() => {
+      /* best effort */
+    });
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new UserError(
+      `Não foi possível baixar o módulo '${moduleName}'. Verifique sua ` +
+        `conexão, o nome do módulo, ou o --template-source.\n` +
+        `  Detalhe: ${msg}`,
+    );
+  }
+
+  return tmpDir;
+}
+
+/** Remove o diretório temp criado por `fetchModuleToTemp`. Best-effort. */
+export async function cleanupModuleTemp(tmpDir: string): Promise<void> {
+  await remove(tmpDir).catch(() => {
+    /* best effort */
+  });
 }
