@@ -57,6 +57,57 @@ O comando:
 
 **Patches manuais**: o CLI **não** modifica automaticamente arquivos existentes do projeto (`api/main.py`, `workers/arq_worker.py`, `core/config.py`). Cada módulo documenta seus patches em um arquivo `<NOME>_SETUP.md` que é copiado junto. A mensagem final do comando inclui um prompt pronto pra colar em IDE com IA (Cursor, Claude Code, Copilot) — aplica os patches em 1 comando.
 
+### `list` — listar versões e atualizações disponíveis
+
+```bash
+cd meu-agente
+npx @iaxplor/create-agent list
+```
+
+Read-only. Consulta `agente.config.json` local e compara com as versões mais recentes no repositório de templates. Mostra tabela:
+
+```
+core            0.1.0 → 0.2.0  (atualização disponível)
+evolution-api   0.1.0 → 0.2.0  (atualização disponível)
+```
+
+Se tudo estiver em dia, mostra `✅ Tudo atualizado.`
+
+### `upgrade [target]` — atualizar core ou módulo
+
+```bash
+# Atualizar tudo (core + módulos) em sequência
+npx @iaxplor/create-agent upgrade
+
+# Só o core
+npx @iaxplor/create-agent upgrade core
+
+# Só um módulo
+npx @iaxplor/create-agent upgrade evolution-api
+
+# Core + todos os módulos (igual ao default)
+npx @iaxplor/create-agent upgrade all
+```
+
+O comando:
+
+1. Valida que é projeto IAxplor (`agente.config.json`)
+2. Baixa snapshots da versão instalada e da nova via git tags (`v0.1.0`, `v0.2.0`, etc.)
+3. Pra cada arquivo do core/módulo, classifica: novo, inalterado, modificado localmente, deletado upstream
+4. Prompta o usuário pra arquivos modificados: `[S]obrescrever / [M]anter / [D]iff`
+5. Oferece backup via `git stash push` antes de aplicar
+6. Aplica mudanças + atualiza `agente.config.json.coreVersion`
+7. Mostra warnings sobre módulos afetados (patches manuais sobrescritos)
+
+**Opções:**
+
+- `--dry-run` — mostra plano sem aplicar
+- `--yes` — aceita sobrescritas e remoções automaticamente (perigoso, mas útil em CI)
+- `--no-stash` — pula prompt de git stash
+- `--template-source <url>` — override do repo base
+
+**Modo degradado**: se a tag da versão instalada não existir no repositório, o CLI opera sem snapshot base — qualquer arquivo diferente da nova versão é marcado como "modificado". Gera falsos positivos mas é seguro (nada é sobrescrito sem confirmação).
+
 ## Convenção de nomenclatura de módulos
 
 Módulos novos devem seguir estas convenções:
