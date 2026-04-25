@@ -126,6 +126,28 @@ Templates antigos sem esses campos continuam funcionando — degradação gracio
 
 Veja [`iaxplor/agent-templates/modules/evolution-api/`](https://github.com/iaxplor/agent-templates/tree/main/modules/evolution-api) como referência.
 
+### Resolução de versões em upgrades — `modules-index.json`
+
+Desde v0.4.1, o CLI resolve a tag do repo correspondente a uma versão de módulo via [`modules-index.json`](https://github.com/iaxplor/agent-templates/blob/main/modules-index.json) na raiz do branch `main` do `agent-templates`. Formato:
+
+```json
+{
+  "google-calendar": {
+    "0.1.0": "v0.2.4",
+    "0.2.0": "v0.3.0",
+    "0.3.1": "v0.4.1"
+  },
+  "evolution-api": {
+    "0.1.0": "v0.1.0",
+    "0.2.3": "v0.2.3"
+  }
+}
+```
+
+Por que existe: a versão de cada módulo evolui de forma independente das tags do repo (release do core/conjunto). Sem o índice, o CLI tentava baixar a tag `v{moduleVersion}` por convenção — funcionava por coincidência só enquanto as numerações casavam, e quebrava sempre que o módulo nascia/atualizava em uma tag posterior do repo. Bug original: [iaxplor/create-agent#1](https://github.com/iaxplor/create-agent/issues/1).
+
+Quando uma nova versão de módulo é lançada, manter o `modules-index.json` sincronizado é parte do release. Se o índice ficar desatualizado, o CLI cai em fallback (tenta `v{version}` / `{version}` por convenção) com warning visível.
+
 ## Desenvolvimento
 
 ```bash
