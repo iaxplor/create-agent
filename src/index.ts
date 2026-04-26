@@ -103,6 +103,10 @@ program
   .option("--dry-run", "mostra o plano sem aplicar mudanças")
   .option("--yes", "aceita sobrescritas e remoções sem prompt (cuidado)")
   .option("--no-stash", "pula o prompt de git stash de backup")
+  .option(
+    "--check",
+    "modo dry-run: lista atualizações pendentes e exit 1 se houver (CI gate)",
+  )
   .action(
     async (
       target: string | undefined,
@@ -111,6 +115,7 @@ program
         dryRun?: boolean;
         yes?: boolean;
         stash?: boolean;
+        check?: boolean;
       },
     ) => {
       // commander `--no-stash` seta `stash: false`. Normalizamos pra flag `noStash`.
@@ -119,6 +124,7 @@ program
         dryRun: options.dryRun,
         yes: options.yes,
         noStash: options.stash === false,
+        check: options.check,
       });
     },
   );

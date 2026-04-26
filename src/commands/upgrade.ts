@@ -41,6 +41,7 @@ import { updatePyproject } from "../utils/pyproject-editor.js";
 import { parseModuleManifest } from "../utils/template-manifest.js";
 import {
   cleanupSnapshot,
+  type ComponentVersion,
   fetchCoreLatestVersion,
   fetchCoreSnapshot,
   fetchModuleLatestVersion,
@@ -48,6 +49,7 @@ import {
   isNewer,
   listProjectComponents,
   resolveInstalledCoreVersion,
+  type VersionSourceOptions,
 } from "../utils/version-manifest.js";
 import { isCompatible } from "../utils/version-check.js";
 import {
@@ -64,6 +66,10 @@ export interface UpgradeOptions {
   yes?: boolean;
   dryRun?: boolean;
   noStash?: boolean;
+  /** Modo CI gate (v0.7.0+): apenas lista components com update disponível
+   *  e seta process.exitCode = 1 se houver. Não baixa snapshots, não roda
+   *  planUpgrade, não escreve nada. */
+  check?: boolean;
 }
 
 export async function upgradeCommand(
@@ -77,6 +83,16 @@ export async function upgradeCommand(
 
   // Validação comum: projeto IAxplor?
   const config = await readAgenteConfig(cwd);
+
+  // CI gate (v0.7.0+): --check pula TUDO e só reporta. Aplica antes do
+  // dispatcher pra também respeitar --check em `upgrade core`/`upgrade <mod>`
+  // (caso CI queira filtrar por componente específico no futuro).
+  if (opts.check) {
+    const result = await runCheckMode(opts);
+    printCheckOutput(result);
+    process.exitCode = result.exitCode;
+    return;
+  }
 
   if (resolvedTarget === "all") {
     await upgradeAll(cwd, config, opts);
@@ -96,6 +112,49 @@ export async function upgradeCommand(
     );
   }
   await upgradeModule(cwd, config, resolvedTarget, opts);
+}
+
+/** Resultado do modo --check: lista de componentes com update + exit code
+ *  esperado (1 se há updates, 0 se tudo atualizado). Helper isolado pra
+ *  testes diretos (sem precisar mockar process.exitCode). */
+export interface CheckModeResult {
+  updates: ComponentVersion[];
+  exitCode: 0 | 1;
+}
+
+/** Executa o modo --check: lê config, lista componentes, filtra os que têm
+ *  update. Não baixa snapshots, não escreve nada. */
+export async function runCheckMode(
+  opts: VersionSourceOptions = {},
+): Promise<CheckModeResult> {
+  const config = await readAgenteConfig(process.cwd());
+  const components = await listProjectComponents(config, opts);
+  const updates = components.filter((c) => c.hasUpdate);
+  return {
+    updates,
+    exitCode: updates.length > 0 ? 1 : 0,
+  };
+}
+
+/** Renderiza o resultado do --check no terminal — apenas a tabela de
+ *  componentes desatualizados + comando recomendado. */
+function printCheckOutput(result: CheckModeResult): void {
+  if (result.updates.length === 0) {
+    log.success("Tudo atualizado — nenhuma ação necessária.");
+    return;
+  }
+  console.log();
+  console.log(chalk.bold(`📦 ${result.updates.length} atualização(ões) pendente(s):`));
+  console.log();
+  for (const c of result.updates) {
+    console.log(
+      `   ${chalk.cyan(c.displayName)}   ${c.installedVersion} → ${chalk.green(c.availableVersion)}`,
+    );
+  }
+  console.log();
+  console.log(chalk.bold("Aplique com:"));
+  log.command("create-agent upgrade   # atualiza tudo");
+  console.log();
 }
 
 // --------------------------------------------------------------------------- //
