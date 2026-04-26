@@ -18,6 +18,7 @@ import chalk from "chalk";
 import fsExtra from "fs-extra";
 
 import { printBanner } from "../utils/banner.js";
+import { detectChannelsConflict } from "../utils/channels-conflict-detector.js";
 import { readAgenteConfig } from "../utils/config-reader.js";
 import { readEnvExampleVars } from "../utils/env-example-reader.js";
 import {
@@ -326,6 +327,61 @@ export async function checkLegacyPatches(
 }
 
 // --------------------------------------------------------------------------- //
+//  V10 — conflito MY_CHANNELS legacy + setup_channels (CLI v0.8.2+)
+// --------------------------------------------------------------------------- //
+
+/** Lê `agent/channels_extensions.py` e alerta se aluno tem AMBOS o
+ *  ponto de extensão novo (`setup_channels()`) E o legacy (`MY_CHANNELS`
+ *  não-vazio). Cenário típico: aluno migrou evolution-api 0.3.x → 0.4.0
+ *  mas esqueceu de remover MY_CHANNELS = [...] antigo — registro duplicado
+ *  silencioso (registry overwrite-tolerant) confunde debug futuro. */
+export async function checkChannelsConflict(
+  projectDir: string,
+): Promise<Finding[]> {
+  const filePath = path.join(projectDir, "agent", "channels_extensions.py");
+  if (!(await pathExists(filePath))) {
+    // Aluno em projeto sem agent/channels_extensions.py — sem canais customizados
+    // ou módulos com integração — nada a alertar.
+    return [
+      {
+        section: "agent/channels_extensions.py",
+        level: "ok",
+        message: "sem agent/channels_extensions.py (nenhum canal custom ou módulo registrado)",
+      },
+    ];
+  }
+
+  const content = await readFile(filePath, "utf8");
+  const conflict = detectChannelsConflict(content);
+
+  if (conflict.hasSetupChannels && conflict.hasNonEmptyMyChannels) {
+    return [
+      {
+        section: "agent/channels_extensions.py",
+        level: "warn",
+        message:
+          "setup_channels() E MY_CHANNELS=[...] ambos presentes — " +
+          "registro duplicado de canais (registry overwrite silent garante " +
+          "que funciona, mas confunde debug). Recomendado: mover instâncias " +
+          "do MY_CHANNELS pra dentro de setup_channels() e zerar MY_CHANNELS=[]",
+      },
+    ];
+  }
+
+  return [
+    {
+      section: "agent/channels_extensions.py",
+      level: "ok",
+      message: conflict.hasSetupChannels
+        ? "setup_channels() definida (extension layer puro)"
+        : conflict.hasNonEmptyMyChannels
+          ? "MY_CHANNELS legacy populado (canal custom do aluno)"
+          : "skeleton sem canais (nenhum módulo/custom registrado)",
+    },
+  ];
+}
+
+// --------------------------------------------------------------------------- //
 //  Orquestração + output
 // --------------------------------------------------------------------------- //
 
@@ -505,6 +561,12 @@ export async function doctorCommand(opts: DoctorOptions = {}): Promise<void> {
   // (ex.: evolution-api ≤ 0.3.x patcheava core/api/workers). Aluno legado vê
   // checklist do que mover pra agent/* via MIGRATION_v0.4.0.md.
   findings.push(...await checkLegacyPatches(cwd));
+
+  // V10 (CLI v0.8.2+) — detecta uso simultâneo de MY_CHANNELS legacy e
+  // setup_channels() novo no agent/channels_extensions.py. Após migração
+  // pra core 0.7.0+/evolution-api 0.4.0, aluno pode esquecer de remover
+  // MY_CHANNELS = [...] antigo — registro duplicado silencioso.
+  findings.push(...await checkChannelsConflict(cwd));
 
   renderFindings(findings);
 

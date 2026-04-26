@@ -14,6 +14,7 @@ import { afterEach, beforeEach } from "vitest";
 
 import {
   _internals,
+  checkChannelsConflict,
   checkLegacyPatches,
   checkMinCoreVersion,
   checkRequiredEnvVars,
@@ -442,5 +443,70 @@ describe("checkLegacyPatches (V9)", () => {
     expect(
       findings.some((f) => f.message.includes("agent/config.py:MySettings")),
     ).toBe(true);
+  });
+});
+
+// =========================================================================== //
+//  V10 — checkChannelsConflict (CLI v0.8.2+)
+// =========================================================================== //
+
+describe("checkChannelsConflict (V10)", () => {
+  let projectDir: string;
+
+  beforeEach(async () => {
+    projectDir = await mkdtemp(join(tmpdir(), "iaxplor-doctor-v10-"));
+  });
+
+  afterEach(async () => {
+    await rm(projectDir, { recursive: true, force: true });
+  });
+
+  it("sem agent/channels_extensions.py → finding ok ('nenhum canal custom ou módulo registrado')", async () => {
+    const findings = await checkChannelsConflict(projectDir);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.level).toBe("ok");
+    expect(findings[0]?.message).toMatch(/sem agent\/channels_extensions/);
+  });
+
+  it("skeleton padrão (MY_CHANNELS=[]) → finding ok", async () => {
+    await mkdir(join(projectDir, "agent"), { recursive: true });
+    await writeFile(
+      join(projectDir, "agent/channels_extensions.py"),
+      "MY_CHANNELS: list = []\n",
+    );
+    const findings = await checkChannelsConflict(projectDir);
+    expect(findings[0]?.level).toBe("ok");
+    expect(findings[0]?.message).toMatch(/skeleton sem canais/);
+  });
+
+  it("setup_channels() definida + MY_CHANNELS vazio (extension layer puro) → ok", async () => {
+    await mkdir(join(projectDir, "agent"), { recursive: true });
+    await writeFile(
+      join(projectDir, "agent/channels_extensions.py"),
+      "def setup_channels() -> None:\n    pass\n\nMY_CHANNELS: list = []\n",
+    );
+    const findings = await checkChannelsConflict(projectDir);
+    expect(findings[0]?.level).toBe("ok");
+    expect(findings[0]?.message).toContain("extension layer puro");
+  });
+
+  it("AMBOS presentes (migração incompleta) → 1 finding warn com hint de limpeza", async () => {
+    await mkdir(join(projectDir, "agent"), { recursive: true });
+    await writeFile(
+      join(projectDir, "agent/channels_extensions.py"),
+      `def setup_channels() -> None:
+    from channels import register_channel
+    from channels.evolution import EvolutionChannel, get_or_create_client
+    register_channel(EvolutionChannel(get_or_create_client()))
+
+# Esquecido após migração pra evolution-api 0.4.0:
+MY_CHANNELS = [EvolutionChannel(...)]
+`,
+    );
+    const findings = await checkChannelsConflict(projectDir);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.level).toBe("warn");
+    expect(findings[0]?.message).toContain("registro duplicado");
+    expect(findings[0]?.message).toContain("zerar MY_CHANNELS=[]");
   });
 });

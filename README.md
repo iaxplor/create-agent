@@ -93,6 +93,7 @@ Roda 4 verificações:
 | **V4** | Env vars `required` | Vars `required: true` no `template.json` ausentes no `.env.example` |
 | **V8** _(v0.8.0+)_ | `agent/*.template` pendentes | Arquivos `.template` gerados por upgrade PROTECTED esperando revisão manual |
 | **V9** _(v0.8.1+)_ | Patches legados em `core/api/workers` | Resíduos de módulos pre-extension-layer (ex.: evolution-api ≤ 0.3.x). Hint pra MIGRATION_v0.4.0.md |
+| **V10** _(v0.8.2+)_ | Conflito `MY_CHANNELS` + `setup_channels()` | Migração incompleta — registro duplicado silencioso. Hint pra zerar `MY_CHANNELS=[]` |
 
 Output exemplo:
 
