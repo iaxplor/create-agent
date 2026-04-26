@@ -237,3 +237,83 @@ describe("renderEnvLine — escape de valores com caracteres especiais", () => {
     expect(renderEnvLine({ name: "EMPTY" })).toBe("EMPTY=");
   });
 });
+
+// =========================================================================== //
+//  Dedup automático fora do bloco (US-3, CLI v0.8.0+)
+// =========================================================================== //
+
+describe("updateEnvExample — dedup automático (dedupOutOfBlock=true default)", () => {
+  it("sem duplicatas fora → no-op (removedDuplicates vazio)", async () => {
+    await writeFile(
+      join(dir, ".env.example"),
+      "# header\n# --- evolution-api (0.1.0) ---\nEVOLUTION_URL=\nEVOLUTION_API_KEY=\nTRANSCRIPTION_MODEL=\n# --- Fim evolution-api ---\n",
+      "utf8",
+    );
+    const result = await updateEnvExample({
+      projectDir: dir,
+      manifest: makeManifest({ version: "0.2.0" }),
+      dryRun: false,
+    });
+    expect(result.removedDuplicates).toEqual([]);
+    expect(result.replaced).toBe(true);
+  });
+
+  it("DOMAIN duplicado fora do bloco → removido automaticamente", async () => {
+    // Cenário real do feedback projeto lab.
+    await writeFile(
+      join(dir, ".env.example"),
+      [
+        "# antes do bloco",
+        "EVOLUTION_URL=fora_do_bloco",
+        "",
+        "# --- evolution-api (0.1.0) ---",
+        "EVOLUTION_URL=",
+        "EVOLUTION_API_KEY=",
+        "TRANSCRIPTION_MODEL=",
+        "# --- Fim evolution-api ---",
+        "",
+        "EVOLUTION_URL=outra_duplicata_no_fim",
+      ].join("\n"),
+      "utf8",
+    );
+    const result = await updateEnvExample({
+      projectDir: dir,
+      manifest: makeManifest({ version: "0.2.0" }),
+      dryRun: false,
+    });
+    expect(result.removedDuplicates).toContain("EVOLUTION_URL");
+    expect(result.outOfBlockDuplicates).toContain("EVOLUTION_URL");
+
+    const finalContent = await readFile(join(dir, ".env.example"), "utf8");
+    // Conta ocorrências de EVOLUTION_URL= em início de linha
+    const matches = finalContent.match(/^EVOLUTION_URL=/gm) ?? [];
+    expect(matches.length).toBe(1); // só dentro do bloco
+  });
+
+  it("dedupOutOfBlock=false preserva duplicatas (comportamento pre-v0.8.0)", async () => {
+    await writeFile(
+      join(dir, ".env.example"),
+      [
+        "EVOLUTION_URL=fora",
+        "# --- evolution-api (0.1.0) ---",
+        "EVOLUTION_URL=",
+        "EVOLUTION_API_KEY=",
+        "TRANSCRIPTION_MODEL=",
+        "# --- Fim evolution-api ---",
+      ].join("\n"),
+      "utf8",
+    );
+    const result = await updateEnvExample({
+      projectDir: dir,
+      manifest: makeManifest({ version: "0.2.0" }),
+      dryRun: false,
+      dedupOutOfBlock: false,
+    });
+    expect(result.removedDuplicates).toEqual([]);
+    expect(result.outOfBlockDuplicates).toContain("EVOLUTION_URL");
+
+    const finalContent = await readFile(join(dir, ".env.example"), "utf8");
+    const matches = finalContent.match(/^EVOLUTION_URL=/gm) ?? [];
+    expect(matches.length).toBe(2); // dentro do bloco + fora preservada
+  });
+});

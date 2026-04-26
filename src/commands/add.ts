@@ -173,12 +173,10 @@ export async function addCommand(
       log.muted(
         `.env.example ${envChanges.created ? "criado" : envChanges.replaced ? "atualizado (bloco existente substituído)" : "atualizado (bloco adicionado)"}`,
       );
-      if (envChanges.outOfBlockDuplicates.length > 0) {
-        for (const varName of envChanges.outOfBlockDuplicates) {
-          log.warn(
-            `${varName} já existe fora do bloco do módulo. Verifique duplicação.`,
-          );
-        }
+      if (envChanges.removedDuplicates.length > 0) {
+        log.muted(
+          `${envChanges.removedDuplicates.length} duplicata(s) removida(s) automaticamente: ${envChanges.removedDuplicates.join(", ")}`,
+        );
       }
     } else {
       log.warn(

@@ -121,17 +121,59 @@ export interface UpdateEnvExampleOptions {
   projectDir: string;
   manifest: EnvBlockTarget;
   dryRun: boolean;
+  /** Quando `true` (default v0.8.0+), remove ocorrências das vars do
+   *  manifest que existem FORA do bloco gerenciado antes de inserir o
+   *  bloco novo. Resolve o problema do projeto lab onde `.env.example`
+   *  acumulou 38 ocorrências de DOMAIN em 167 linhas após múltiplos
+   *  upgrades. Setar `false` mantém comportamento pre-v0.8.0 (apenas
+   *  detecta e warna). ADR-003. */
+  dedupOutOfBlock?: boolean;
+}
+
+/** Remove TODAS as ocorrências (linhas) das vars listadas, fora do bloco.
+ *  Pré-condição: o bloco do módulo foi REMOVIDO do `content` antes de
+ *  chamar (caller passa `contentWithoutBlock`). Comments e linhas em
+ *  branco são preservados. Idempotente. */
+function removeOutOfBlockOccurrences(
+  contentWithoutBlock: string,
+  varNames: readonly string[],
+): { content: string; removed: string[] } {
+  if (varNames.length === 0) {
+    return { content: contentWithoutBlock, removed: [] };
+  }
+  const removedSet = new Set<string>();
+  const lines = contentWithoutBlock.split(/\r?\n/);
+  const kept: string[] = [];
+  for (const line of lines) {
+    let matched = false;
+    for (const name of varNames) {
+      const re = new RegExp(`^${escapeRegex(name)}=`);
+      if (re.test(line)) {
+        removedSet.add(name);
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) kept.push(line);
+  }
+  return { content: kept.join("\n"), removed: [...removedSet] };
 }
 
 /** Adiciona ou substitui o bloco do módulo no `.env.example`.
  *
  *  NÃO levanta exceções — retorna `EnvExampleChanges` com `applied: false` e
  *  `errorMessage` em caso de falha. Caller decide como apresentar pro usuário.
+ *
+ *  `dedupOutOfBlock` (default `true` em v0.8.0+): se houver vars do manifest
+ *  declaradas fora do bloco gerenciado, REMOVE as ocorrências antes de
+ *  inserir o novo bloco. Mantém apenas a versão dentro do bloco. Aluno é
+ *  notificado via `removedDuplicates` no resultado.
  */
 export async function updateEnvExample(
   opts: UpdateEnvExampleOptions,
 ): Promise<EnvExampleChanges> {
   const { projectDir, manifest, dryRun } = opts;
+  const dedup = opts.dedupOutOfBlock ?? true;
   const filePath = path.join(projectDir, ENV_EXAMPLE_FILENAME);
   const exists = await pathExists(filePath);
   const blockRegex = buildBlockRegex(manifest.name);
@@ -150,34 +192,46 @@ export async function updateEnvExample(
         replaced: false,
         varCount,
         outOfBlockDuplicates: [],
+        removedDuplicates: [],
       };
     }
 
     const original = await readFile(filePath, "utf8");
     let replaced = false;
-    let updated: string;
 
+    // Passo 1: remove o bloco existente do módulo (se houver) pra ter base
+    // limpa pra dedup + re-inserção.
+    let stripped = original;
     if (blockRegex.test(original)) {
-      // Bloco existente — substitui in-place preservando o resto do arquivo.
-      // Reset lastIndex do regex em cada operação (g não, mas melhor blindar).
-      updated = original.replace(buildBlockRegex(manifest.name), `${newBlock}\n`);
+      stripped = original.replace(buildBlockRegex(manifest.name), "");
       replaced = true;
-    } else {
-      // Append no final com separador em branco.
-      const separator = original.endsWith("\n") ? "\n" : "\n\n";
-      updated = `${original}${separator}${newBlock}\n`;
     }
 
-    // Detecta duplicatas fora do bloco. Removemos o bloco do conteúdo antes
-    // de procurar — senão o próprio bloco que acabamos de escrever matcharia.
-    const contentWithoutBlock = updated.replace(
-      buildBlockRegex(manifest.name),
-      "",
-    );
-    const outOfBlockDuplicates = findOutOfBlockDuplicates(
-      contentWithoutBlock,
+    // Passo 2: detecta + opcionalmente remove duplicatas FORA do bloco.
+    const detectedDuplicates = findOutOfBlockDuplicates(
+      stripped,
       manifest.env_vars,
     );
+    let removedDuplicates: string[] = [];
+    if (dedup && detectedDuplicates.length > 0) {
+      const dedupResult = removeOutOfBlockOccurrences(
+        stripped,
+        detectedDuplicates,
+      );
+      stripped = dedupResult.content;
+      removedDuplicates = dedupResult.removed;
+    }
+
+    // Passo 3: re-insere o bloco novo (no final se foi append, ou no
+    // mesmo "espaço" lógico se foi replace).
+    const separator = stripped.endsWith("\n") || stripped === ""
+      ? ""
+      : "\n";
+    const updated = `${stripped}${separator}${newBlock}\n`;
+
+    // outOfBlockDuplicates ainda reflete o detectado (transparência);
+    // removedDuplicates só lista o que efetivamente sumiu.
+    const outOfBlockDuplicates = detectedDuplicates;
 
     if (!dryRun) {
       await writeFile(filePath, updated, "utf8");
@@ -189,6 +243,7 @@ export async function updateEnvExample(
       replaced,
       varCount,
       outOfBlockDuplicates,
+      removedDuplicates,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -198,6 +253,7 @@ export async function updateEnvExample(
       replaced: false,
       varCount,
       outOfBlockDuplicates: [],
+      removedDuplicates: [],
       errorMessage: msg,
     };
   }
@@ -209,4 +265,5 @@ export const _internals = {
   renderBlock,
   renderEnvLine,
   findOutOfBlockDuplicates,
+  removeOutOfBlockOccurrences,
 };

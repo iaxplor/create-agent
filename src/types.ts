@@ -93,8 +93,14 @@ export interface EnvExampleChanges {
   replaced: boolean;
   /** Número de env vars gravadas no bloco. */
   varCount: number;
-  /** Nomes de env vars que já existiam FORA do bloco (warning). */
+  /** Nomes de env vars que já existiam FORA do bloco (warning).
+   *  Quando `dedupOutOfBlock: true` (default v0.8.0+), essas são as que
+   *  FORAM REMOVIDAS automaticamente; com `dedupOutOfBlock: false`, são
+   *  apenas detectadas pra warning manual. */
   outOfBlockDuplicates: string[];
+  /** Nomes de vars efetivamente removidas do conteúdo (subset de
+   *  outOfBlockDuplicates quando dedup está ativo; vazio caso contrário). */
+  removedDuplicates: string[];
   /** Mensagem de erro humano-lido quando `applied === false`. */
   errorMessage?: string;
 }

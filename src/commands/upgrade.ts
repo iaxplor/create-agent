@@ -906,9 +906,9 @@ function reportEnvExampleChanges(
       `${filename}: bloco adicionado (${changes.varCount} vars).`,
     );
   }
-  if (changes.outOfBlockDuplicates.length > 0) {
-    log.warn(
-      `${filename}: vars duplicadas fora do bloco — revise: ${changes.outOfBlockDuplicates.join(", ")}`,
+  if (changes.removedDuplicates.length > 0) {
+    log.muted(
+      `${filename}: ${changes.removedDuplicates.length} duplicata(s) removida(s) automaticamente: ${changes.removedDuplicates.join(", ")}`,
     );
   }
 }
