@@ -37,7 +37,7 @@ import type {
   TemplateJson,
 } from "../types.js";
 
-const { pathExists, readJson } = fsExtra;
+const { pathExists, readJson, readdir } = fsExtra;
 
 export interface DoctorOptions {
   templateSource?: string;
@@ -218,6 +218,61 @@ export function checkRequiredEnvVars(
 }
 
 // --------------------------------------------------------------------------- //
+//  V8 — `.template` files em agent/ (CLI v0.8.0+, US-6)
+// --------------------------------------------------------------------------- //
+
+/** Walk recursivo em `agent/` procurando arquivos `*.template`.
+ *  Retorna paths relativos a `projectDir`. Vazio se diretório não existe. */
+async function findTemplateFiles(projectDir: string): Promise<string[]> {
+  const agentDir = path.join(projectDir, "agent");
+  if (!(await pathExists(agentDir))) return [];
+  const out: string[] = [];
+  await walkAgent(agentDir, projectDir, out);
+  return out.sort();
+}
+
+async function walkAgent(
+  dir: string,
+  projectDir: string,
+  acc: string[],
+): Promise<void> {
+  const entries = await readdir(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const abs = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      // Skip __pycache__ e similares — ruído.
+      if (entry.name.startsWith("__")) continue;
+      await walkAgent(abs, projectDir, acc);
+    } else if (entry.isFile() && entry.name.endsWith(".template")) {
+      acc.push(path.relative(projectDir, abs));
+    }
+  }
+}
+
+/** Valida presença de `.template` files em agent/ (gerados por upgrade
+ *  PROTECTED — US-1). Cada arquivo encontrado vira finding `warn` —
+ *  lembrete pra aluno revisar e mesclar/remover. */
+export async function checkTemplateFiles(
+  projectDir: string,
+): Promise<Finding[]> {
+  const templates = await findTemplateFiles(projectDir);
+  if (templates.length === 0) {
+    return [
+      {
+        section: "agent/ template files",
+        level: "ok",
+        message: "nenhum .template pendente",
+      },
+    ];
+  }
+  return templates.map((relPath) => ({
+    section: "agent/ template files",
+    level: "warn" as const,
+    message: `${relPath} — revise e mescle ou remova (gerado por upgrade PROTECTED)`,
+  }));
+}
+
+// --------------------------------------------------------------------------- //
 //  Orquestração + output
 // --------------------------------------------------------------------------- //
 
@@ -388,6 +443,10 @@ export async function doctorCommand(opts: DoctorOptions = {}): Promise<void> {
       await cleanupSnapshot(dir);
     }
   }
+
+  // V8 (CLI v0.8.0+) — alerta sobre arquivos .template pendentes em agent/
+  // gerados por upgrades PROTECTED (US-1). Aluno deve revisar/mesclar.
+  findings.push(...await checkTemplateFiles(cwd));
 
   renderFindings(findings);
 

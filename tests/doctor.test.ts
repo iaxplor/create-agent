@@ -6,10 +6,17 @@
 
 import { describe, expect, it, vi } from "vitest";
 
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { afterEach, beforeEach } from "vitest";
+
 import {
   _internals,
   checkMinCoreVersion,
   checkRequiredEnvVars,
+  checkTemplateFiles,
   renderFindings,
   reportVersionAvailability,
   shouldExitStrict,
@@ -302,5 +309,68 @@ describe("shouldExitStrict (CI gate)", () => {
       { section: "z", level: "error", message: "boom" },
     ];
     expect(shouldExitStrict(findings, { strict: true })).toBe(true);
+  });
+});
+
+// =========================================================================== //
+//  V8 — checkTemplateFiles (CLI v0.8.0+, US-6)
+// =========================================================================== //
+
+describe("checkTemplateFiles (V8)", () => {
+  let projectDir: string;
+
+  beforeEach(async () => {
+    projectDir = await mkdtemp(join(tmpdir(), "iaxplor-doctor-v8-"));
+  });
+
+  afterEach(async () => {
+    await rm(projectDir, { recursive: true, force: true });
+  });
+
+  it("sem agent/ → 1 finding ok ('nenhum .template pendente')", async () => {
+    const findings = await checkTemplateFiles(projectDir);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.level).toBe("ok");
+    expect(findings[0]?.section).toBe("agent/ template files");
+  });
+
+  it("agent/ sem .template files → 1 finding ok", async () => {
+    await mkdir(join(projectDir, "agent"), { recursive: true });
+    await writeFile(join(projectDir, "agent/instructions.py"), "# custom");
+    const findings = await checkTemplateFiles(projectDir);
+    expect(findings[0]?.level).toBe("ok");
+  });
+
+  it("agent/instructions.py.template existe → 1 finding warn", async () => {
+    await mkdir(join(projectDir, "agent"), { recursive: true });
+    await writeFile(join(projectDir, "agent/instructions.py"), "# custom");
+    await writeFile(
+      join(projectDir, "agent/instructions.py.template"),
+      "# skeleton novo",
+    );
+    const findings = await checkTemplateFiles(projectDir);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.level).toBe("warn");
+    expect(findings[0]?.message).toContain("agent/instructions.py.template");
+    expect(findings[0]?.message).toContain("revise e mescle");
+  });
+
+  it("múltiplos .template em subpastas → N findings (todos warn)", async () => {
+    await mkdir(join(projectDir, "agent/tools"), { recursive: true });
+    await writeFile(
+      join(projectDir, "agent/instructions.py.template"),
+      "skeleton 1",
+    );
+    await writeFile(
+      join(projectDir, "agent/customer_metadata.py.template"),
+      "skeleton 2",
+    );
+    await writeFile(
+      join(projectDir, "agent/tools/calc.py.template"),
+      "skeleton 3",
+    );
+    const findings = await checkTemplateFiles(projectDir);
+    expect(findings).toHaveLength(3);
+    expect(findings.every((f) => f.level === "warn")).toBe(true);
   });
 });
