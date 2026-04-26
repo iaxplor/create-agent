@@ -12,6 +12,7 @@ import {
   checkRequiredEnvVars,
   renderFindings,
   reportVersionAvailability,
+  shouldExitStrict,
   validateConfigStructure,
   type Finding,
 } from "../src/commands/doctor.js";
@@ -270,5 +271,36 @@ describe("renderFindings", () => {
     } finally {
       logSpy.mockRestore();
     }
+  });
+});
+
+// =========================================================================== //
+//  shouldExitStrict (CI gate v0.7.0+)
+// =========================================================================== //
+
+describe("shouldExitStrict (CI gate)", () => {
+  it("retorna false sem --strict mesmo com errors (default informativo)", () => {
+    const findings: Finding[] = [
+      { section: "x", level: "error", message: "boom" },
+    ];
+    expect(shouldExitStrict(findings, {})).toBe(false);
+    expect(shouldExitStrict(findings, { strict: false })).toBe(false);
+  });
+
+  it("retorna false com --strict se 0 errors (warnings não contam)", () => {
+    const findings: Finding[] = [
+      { section: "x", level: "ok", message: "ok" },
+      { section: "y", level: "warn", message: "atenção" },
+    ];
+    expect(shouldExitStrict(findings, { strict: true })).toBe(false);
+  });
+
+  it("retorna true com --strict + pelo menos 1 error", () => {
+    const findings: Finding[] = [
+      { section: "x", level: "ok", message: "ok" },
+      { section: "y", level: "warn", message: "atenção" },
+      { section: "z", level: "error", message: "boom" },
+    ];
+    expect(shouldExitStrict(findings, { strict: true })).toBe(true);
   });
 });

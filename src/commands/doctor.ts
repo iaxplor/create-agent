@@ -41,6 +41,9 @@ const { pathExists, readJson } = fsExtra;
 
 export interface DoctorOptions {
   templateSource?: string;
+  /** Modo CI gate: se true e há findings de level "error", seta
+   *  process.exitCode = 1. Warnings continuam exit 0. */
+  strict?: boolean;
 }
 
 /** Severidade de cada finding. `ok` é positivo (✓ verde), `warn` é amarelo,
@@ -403,7 +406,22 @@ export async function doctorCommand(opts: DoctorOptions = {}): Promise<void> {
     console.log();
   }
 
-  // Sempre exit 0 (D1 do plan).
+  // CI gate (v0.7.0+): --strict transforma errors em exit 1. Warnings
+  // continuam exit 0 — semântica do warning é "preste atenção", do error
+  // é "ação requerida". Sem --strict, sempre exit 0 (default informativo).
+  if (shouldExitStrict(findings, opts)) {
+    process.exitCode = 1;
+  }
+}
+
+/** Helper isolado pro CI gate `--strict`. Retorna true se aluno passou
+ *  `--strict` E há pelo menos 1 finding de nível "error". Exportado pra
+ *  testes diretos (sem precisar mockar process.exitCode). */
+export function shouldExitStrict(
+  findings: Finding[],
+  opts: DoctorOptions,
+): boolean {
+  return opts.strict === true && findings.some((f) => f.level === "error");
 }
 
 /** Re-exports só pros testes (vitest importa direto). */

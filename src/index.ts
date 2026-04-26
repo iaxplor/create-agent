@@ -80,9 +80,15 @@ program
     "--template-source <url>",
     "override do repo base (default: github:iaxplor/agent-templates)",
   )
-  .action(async (options: { templateSource?: string }) => {
-    await doctorCommand(options);
-  });
+  .option(
+    "--strict",
+    "exit code 1 se há findings de nível error (CI gate). Warnings continuam exit 0.",
+  )
+  .action(
+    async (options: { templateSource?: string; strict?: boolean }) => {
+      await doctorCommand(options);
+    },
+  );
 
 // --- Subcomando `upgrade` -------------------------------------------------
 program
