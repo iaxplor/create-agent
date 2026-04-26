@@ -8,6 +8,7 @@ import chalk from "chalk";
 import { printBanner } from "../utils/banner.js";
 import { readAgenteConfig } from "../utils/config-reader.js";
 import { createSpinner, log } from "../utils/logger.js";
+import { severityOfBump, type Severity } from "../utils/semver-diff.js";
 import {
   listProjectComponents,
   type ComponentVersion,
@@ -47,8 +48,10 @@ export async function listCommand(opts: ListOptions = {}): Promise<void> {
     const name = c.displayName.padEnd(nameWidth);
     const installed = c.installedVersion.padEnd(versionWidth);
     if (c.hasUpdate) {
+      const severity = severityOfBump(c.installedVersion, c.availableVersion);
+      const badge = severity ? `  ${formatSeverityBadge(severity)}` : "";
       console.log(
-        `   ${chalk.cyan(name)}   ${installed} → ${chalk.green(c.availableVersion)}  ${chalk.yellow("(atualização disponível)")}`,
+        `   ${chalk.cyan(name)}   ${installed} → ${chalk.green(c.availableVersion)}  ${chalk.yellow("(atualização disponível)")}${badge}`,
       );
     } else {
       console.log(
@@ -73,4 +76,17 @@ export async function listCommand(opts: ListOptions = {}): Promise<void> {
   }
   console.log(`   • ${chalk.cyan("create-agent upgrade all")} — atualiza tudo em sequência`);
   console.log();
+}
+
+/** Renderiza badge colorido pra severity (red=major, yellow=minor, gray=patch).
+ *  Cores escolhidas pra intuição visual padrão (vermelho = atenção alta). */
+function formatSeverityBadge(severity: Severity): string {
+  switch (severity) {
+    case "major":
+      return chalk.red("(major)");
+    case "minor":
+      return chalk.yellow("(minor)");
+    case "patch":
+      return chalk.gray("(patch)");
+  }
 }
