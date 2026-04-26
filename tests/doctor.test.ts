@@ -14,6 +14,7 @@ import { afterEach, beforeEach } from "vitest";
 
 import {
   _internals,
+  checkLegacyPatches,
   checkMinCoreVersion,
   checkRequiredEnvVars,
   checkTemplateFiles,
@@ -372,5 +373,74 @@ describe("checkTemplateFiles (V8)", () => {
     const findings = await checkTemplateFiles(projectDir);
     expect(findings).toHaveLength(3);
     expect(findings.every((f) => f.level === "warn")).toBe(true);
+  });
+});
+
+// =========================================================================== //
+//  V9 — checkLegacyPatches (CLI v0.8.1+, US-6 do plan v0.10.0)
+// =========================================================================== //
+
+describe("checkLegacyPatches (V9)", () => {
+  let projectDir: string;
+
+  beforeEach(async () => {
+    projectDir = await mkdtemp(join(tmpdir(), "iaxplor-doctor-v9-"));
+  });
+
+  afterEach(async () => {
+    await rm(projectDir, { recursive: true, force: true });
+  });
+
+  it("projeto sem core/api/workers (mínimo) → 1 finding ok", async () => {
+    const findings = await checkLegacyPatches(projectDir);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.level).toBe("ok");
+    expect(findings[0]?.message).toContain("nenhum patch legado");
+  });
+
+  it("projeto limpo (com arquivos sem patches) → 1 finding ok", async () => {
+    await mkdir(join(projectDir, "core"), { recursive: true });
+    await mkdir(join(projectDir, "api"), { recursive: true });
+    await mkdir(join(projectDir, "workers"), { recursive: true });
+    await writeFile(
+      join(projectDir, "core/config.py"),
+      "class Settings:\n    database_url: str\n",
+    );
+    await writeFile(
+      join(projectDir, "api/main.py"),
+      "from fastapi import FastAPI\napp = FastAPI()\n",
+    );
+    await writeFile(
+      join(projectDir, "workers/arq_worker.py"),
+      "class WorkerSettings:\n    functions = []\n",
+    );
+    const findings = await checkLegacyPatches(projectDir);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.level).toBe("ok");
+  });
+
+  it("projeto legado (3 patches) → 4+ findings warn com hints de migration", async () => {
+    await mkdir(join(projectDir, "core"), { recursive: true });
+    await mkdir(join(projectDir, "api"), { recursive: true });
+    await mkdir(join(projectDir, "workers"), { recursive: true });
+    await writeFile(
+      join(projectDir, "core/config.py"),
+      "class Settings:\n    evolution_url: str | None = None\n",
+    );
+    await writeFile(
+      join(projectDir, "api/main.py"),
+      "from channels.evolution import EvolutionChannel\napp.include_router(evolution_webhook_router)\n",
+    );
+    await writeFile(
+      join(projectDir, "workers/arq_worker.py"),
+      "from workers.tasks.evolution_process_media import process_evolution_media\nctx['evolution_client'] = client\n",
+    );
+    const findings = await checkLegacyPatches(projectDir);
+    expect(findings.length).toBeGreaterThanOrEqual(4);
+    expect(findings.every((f) => f.level === "warn")).toBe(true);
+    // Pelo menos 1 finding menciona MySettings (migration core/config.py)
+    expect(
+      findings.some((f) => f.message.includes("agent/config.py:MySettings")),
+    ).toBe(true);
   });
 });

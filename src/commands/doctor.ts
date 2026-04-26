@@ -20,6 +20,12 @@ import fsExtra from "fs-extra";
 import { printBanner } from "../utils/banner.js";
 import { readAgenteConfig } from "../utils/config-reader.js";
 import { readEnvExampleVars } from "../utils/env-example-reader.js";
+import {
+  detectEvolutionInApiMain,
+  detectEvolutionInArqWorker,
+  detectEvolutionInCoreConfig,
+  type LegacyPatchFinding,
+} from "../utils/legacy-patches-detector.js";
 import { createSpinner, log } from "../utils/logger.js";
 import { parseModuleManifest } from "../utils/template-manifest.js";
 import {
@@ -37,7 +43,7 @@ import type {
   TemplateJson,
 } from "../types.js";
 
-const { pathExists, readJson, readdir } = fsExtra;
+const { pathExists, readFile, readJson, readdir } = fsExtra;
 
 export interface DoctorOptions {
   templateSource?: string;
@@ -273,6 +279,53 @@ export async function checkTemplateFiles(
 }
 
 // --------------------------------------------------------------------------- //
+//  V9 — patches legados de módulos pre-extension-layer (CLI v0.8.1+, US-6)
+// --------------------------------------------------------------------------- //
+
+/** Mapeamento de arquivos do projeto pra detector correspondente.
+ *  Centralizado pra ficar fácil expandir quando novos módulos migrarem
+ *  pra extension layer (z-api, telegram, etc.). */
+const LEGACY_DETECTORS: ReadonlyArray<{
+  relPath: string;
+  detect: (content: string) => LegacyPatchFinding[];
+}> = [
+  { relPath: "core/config.py", detect: detectEvolutionInCoreConfig },
+  { relPath: "api/main.py", detect: detectEvolutionInApiMain },
+  { relPath: "workers/arq_worker.py", detect: detectEvolutionInArqWorker },
+];
+
+/** Roda os detectores em arquivos do projeto, agrupando findings por
+ *  arquivo. Cada finding warn aponta migration via MIGRATION_v0.4.0.md. */
+export async function checkLegacyPatches(
+  projectDir: string,
+): Promise<Finding[]> {
+  const findings: Finding[] = [];
+  for (const { relPath, detect } of LEGACY_DETECTORS) {
+    const abs = path.join(projectDir, relPath);
+    if (!(await pathExists(abs))) continue;
+    const content = await readFile(abs, "utf8");
+    const detected = detect(content);
+    for (const f of detected) {
+      findings.push({
+        section: "patches legados (módulos pre-extension-layer)",
+        level: "warn",
+        message: `${f.file}: ${f.message} — ${f.hint}`,
+      });
+    }
+  }
+  if (findings.length === 0) {
+    return [
+      {
+        section: "patches legados (módulos pre-extension-layer)",
+        level: "ok",
+        message: "nenhum patch legado em core/api/workers",
+      },
+    ];
+  }
+  return findings;
+}
+
+// --------------------------------------------------------------------------- //
 //  Orquestração + output
 // --------------------------------------------------------------------------- //
 
@@ -447,6 +500,11 @@ export async function doctorCommand(opts: DoctorOptions = {}): Promise<void> {
   // V8 (CLI v0.8.0+) — alerta sobre arquivos .template pendentes em agent/
   // gerados por upgrades PROTECTED (US-1). Aluno deve revisar/mesclar.
   findings.push(...await checkTemplateFiles(cwd));
+
+  // V9 (CLI v0.8.1+) — detecta patches legados de módulos pre-extension-layer
+  // (ex.: evolution-api ≤ 0.3.x patcheava core/api/workers). Aluno legado vê
+  // checklist do que mover pra agent/* via MIGRATION_v0.4.0.md.
+  findings.push(...await checkLegacyPatches(cwd));
 
   renderFindings(findings);
 
