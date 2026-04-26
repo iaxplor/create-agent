@@ -246,3 +246,84 @@ describe("planUpgrade — combinações reais", () => {
     expect(plan.entries[0]?.status).toBe("modified-locally");
   });
 });
+
+// =========================================================================== //
+//  PROTECTED — agent/* (ADR-001, CLI v0.8.0+)
+// =========================================================================== //
+
+describe("planUpgrade — categoria PROTECTED (agent/*)", () => {
+  it("agent/instructions.py modificado pelo aluno → 'protected-skipped' (gera .template, não toca)", async () => {
+    await oldSnap.addFile("agent/instructions.py", "skeleton vazio");
+    await newSnap.addFile("agent/instructions.py", "skeleton novo do template");
+    await project.addFile("agent/instructions.py", "70 linhas de system prompt do aluno");
+
+    const plan = await planUpgrade({
+      projectDir: project.dir,
+      oldSnapshotDir: oldSnap.dir,
+      newSnapshotDir: newSnap.dir,
+    });
+
+    expect(plan.entries[0]?.status).toBe("protected-skipped");
+    expect(plan.entries[0]?.relPath).toBe("agent/instructions.py");
+  });
+
+  it("agent/skeleton_novo.py não existe local → 'protected-skipped' (gera .template, sem auto-criar)", async () => {
+    await newSnap.addFile("agent/feedback_extensions.py", "skeleton vazio");
+    // project NÃO tem agent/feedback_extensions.py
+
+    const plan = await planUpgrade({
+      projectDir: project.dir,
+      oldSnapshotDir: oldSnap.dir,
+      newSnapshotDir: newSnap.dir,
+    });
+
+    expect(plan.entries[0]?.status).toBe("protected-skipped");
+  });
+
+  it("agent/customer_metadata.py idêntico ao template → 'same-as-new' (no-op silencioso, sem .template)", async () => {
+    const content = "from pydantic import BaseModel\nclass CustomerMetadata(BaseModel): pass\n";
+    await newSnap.addFile("agent/customer_metadata.py", content);
+    await project.addFile("agent/customer_metadata.py", content);
+
+    const plan = await planUpgrade({
+      projectDir: project.dir,
+      oldSnapshotDir: oldSnap.dir,
+      newSnapshotDir: newSnap.dir,
+    });
+
+    expect(plan.entries[0]?.status).toBe("same-as-new");
+  });
+});
+
+// =========================================================================== //
+//  MERGED — .gitignore, .env.example (ADR-002, CLI v0.8.0+)
+// =========================================================================== //
+
+describe("planUpgrade — categoria MERGED (.gitignore, .env.example)", () => {
+  it(".gitignore com qualquer estado → 'merged' (executor faz fusão custom)", async () => {
+    await newSnap.addFile(".gitignore", "*.pyc\n.env\n");
+    await project.addFile(".gitignore", "*.pyc\n.env\ncredentials.json\n");
+
+    const plan = await planUpgrade({
+      projectDir: project.dir,
+      oldSnapshotDir: oldSnap.dir,
+      newSnapshotDir: newSnap.dir,
+    });
+
+    expect(plan.entries[0]?.status).toBe("merged");
+    expect(plan.entries[0]?.relPath).toBe(".gitignore");
+  });
+
+  it(".env.example sempre cai em 'merged' (sem hash check no planner)", async () => {
+    await newSnap.addFile(".env.example", "DOMAIN=\nDATABASE_URL=\n");
+    await project.addFile(".env.example", "DOMAIN=meudominio.com\nDATABASE_URL=postgres://\n");
+
+    const plan = await planUpgrade({
+      projectDir: project.dir,
+      oldSnapshotDir: oldSnap.dir,
+      newSnapshotDir: newSnap.dir,
+    });
+
+    expect(plan.entries[0]?.status).toBe("merged");
+  });
+});
