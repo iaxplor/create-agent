@@ -78,46 +78,66 @@ export async function executeUpgrade(
     dryRun: opts.dryRun,
   };
 
+  // Contagem de entries já processadas — usada na mensagem de erro pra
+  // dar contexto sobre quantos arquivos foram tocados antes da falha.
+  let processedCount = 0;
+
   for (const entry of opts.plan.entries) {
     const action = resolveAction(entry, opts.decisions);
 
-    switch (action) {
-      case "copy-new":
-        if (!opts.dryRun) await doCopy(entry);
-        result.copied.push(entry.relPath);
-        break;
+    try {
+      switch (action) {
+        case "copy-new":
+          if (!opts.dryRun) await doCopy(entry);
+          result.copied.push(entry.relPath);
+          break;
 
-      case "overwrite":
-        if (!opts.dryRun) await doCopy(entry);
-        result.overwritten.push(entry.relPath);
-        break;
+        case "overwrite":
+          if (!opts.dryRun) await doCopy(entry);
+          result.overwritten.push(entry.relPath);
+          break;
 
-      case "delete":
-        if (!opts.dryRun) await remove(entry.destPath);
-        result.deleted.push(entry.relPath);
-        break;
+        case "delete":
+          if (!opts.dryRun) await remove(entry.destPath);
+          result.deleted.push(entry.relPath);
+          break;
 
-      case "keep":
-        result.kept.push(entry.relPath);
-        break;
+        case "keep":
+          result.kept.push(entry.relPath);
+          break;
 
-      case "skip":
-        result.skipped.push(entry.relPath);
-        break;
+        case "skip":
+          result.skipped.push(entry.relPath);
+          break;
 
-      case "generate-template":
-        if (!opts.dryRun) await doGenerateTemplate(entry);
-        result.templatesGenerated.push(entry.relPath);
-        break;
+        case "generate-template":
+          if (!opts.dryRun) await doGenerateTemplate(entry);
+          result.templatesGenerated.push(entry.relPath);
+          break;
 
-      case "merge":
-        if (!opts.dryRun) await doMerge(entry);
-        result.merged.push(entry.relPath);
-        break;
+        case "merge":
+          if (!opts.dryRun) await doMerge(entry);
+          result.merged.push(entry.relPath);
+          break;
+      }
+      processedCount++;
+    } catch (err) {
+      // Re-throw com contexto rico (ADR-004 — sem rollback automático,
+      // apenas mensagem honest orientando recovery via git stash).
+      const original = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `Falha ao processar '${entry.relPath}' (action=${action}): ${original}\n\n` +
+          `${processedCount} arquivo(s) já foram processados antes do erro. ` +
+          `agente.config.json NÃO foi atualizado (versão antiga preservada).\n` +
+          `Recupere via 'git stash pop' (se aceitou stash automático) ou ` +
+          `'git checkout HEAD .' se o projeto está em git limpo.`,
+      );
     }
   }
 
   // --- Update do agente.config.json -------------------------------------
+  // SÓ executa se loop de cópia terminou sem exceção (caso contrário, já
+  // foi re-thrown acima e config fica preservada na versão antiga).
   if (!opts.dryRun) {
     await updateConfigVersion(opts.projectDir, opts.target, opts.newVersion);
   }
