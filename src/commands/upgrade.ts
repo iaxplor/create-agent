@@ -63,6 +63,8 @@ const { readJson } = fsExtra;
 
 export interface UpgradeOptions {
   templateSource?: string;
+  /** Legacy (CLI v0.7.x e anterior): "yes pra tudo". Em v0.8.0+, alias
+   *  pra acceptNew + overwriteModified + deleteRemoved (ADR-005). */
   yes?: boolean;
   dryRun?: boolean;
   noStash?: boolean;
@@ -70,6 +72,54 @@ export interface UpgradeOptions {
    *  e seta process.exitCode = 1 se houver. Não baixa snapshots, não roda
    *  planUpgrade, não escreve nada. */
   check?: boolean;
+  /** v0.8.0+ — aceita arquivos NOVOS sem prompt (não afeta modified). */
+  acceptNew?: boolean;
+  /** v0.8.0+ — força overwrite em arquivos modified-locally /
+   *  changed-remote-no-base. PERIGOSO. Sem isso, modified vira "keep". */
+  overwriteModified?: boolean;
+  /** v0.8.0+ — força delete em arquivos deleted-in-new. */
+  deleteRemoved?: boolean;
+}
+
+/** Política de decisão consolidada (ADR-005). Resultado de
+ *  resolveDecisionPolicy(opts) — granular, testável, sem efeito colateral. */
+export interface DecisionPolicy {
+  /** Auto-aceita arquivos novos (sem prompt). */
+  acceptNew: boolean;
+  /** Auto-overwrite em modified-locally / changed-remote-no-base. */
+  overwriteModified: boolean;
+  /** Auto-delete em deleted-in-new. */
+  deleteRemoved: boolean;
+}
+
+/** Normaliza UpgradeOptions em política granular. `--yes` legacy ativa os 3
+ *  pra retrocompatibilidade. Sem flags → política conservadora (prompt em
+ *  TTY, "keep"/"preserve" em CI). */
+export function resolveDecisionPolicy(opts: UpgradeOptions): DecisionPolicy {
+  if (opts.yes) {
+    return {
+      acceptNew: true,
+      overwriteModified: true,
+      deleteRemoved: true,
+    };
+  }
+  return {
+    acceptNew: opts.acceptNew ?? false,
+    overwriteModified: opts.overwriteModified ?? false,
+    deleteRemoved: opts.deleteRemoved ?? false,
+  };
+}
+
+/** True se o aluno passou QUALQUER flag de automação (--yes legacy OU
+ *  qualquer das 3 granulares). Usado pra skipar o prompt geral "Continuar?"
+ *  em runs de CI sem ter que passar --yes inteiro. */
+export function isAutomatedRun(opts: UpgradeOptions): boolean {
+  return Boolean(
+    opts.yes ||
+      opts.acceptNew ||
+      opts.overwriteModified ||
+      opts.deleteRemoved,
+  );
 }
 
 export async function upgradeCommand(
@@ -225,12 +275,12 @@ async function upgradeCore(
     planSpinner.succeed(`Plano gerado (${plan.entries.length} arquivos analisados)`);
 
     // Fase 3B — Prompts interativos
-    const decisions = await collectDecisions(plan, opts.yes ?? false);
+    const decisions = await collectDecisions(plan, resolveDecisionPolicy(opts));
 
     // Fase 4 — Resumo + confirmação
     printPlanSummary(plan, decisions, installedVersion, availableVersion);
 
-    if (!opts.dryRun && !opts.yes) {
+    if (!opts.dryRun && !isAutomatedRun(opts)) {
       const proceed = await confirm("Continuar?");
       if (!proceed) {
         throw new UserError("Upgrade cancelado pelo usuário. Nada foi modificado.");
@@ -420,7 +470,7 @@ async function upgradeModule(
           `   Recomendado: rode 'create-agent upgrade core' antes.`,
         ),
       );
-      if (!opts.yes) {
+      if (!isAutomatedRun(opts)) {
         const cont = await confirm("Continuar mesmo assim?");
         if (!cont) {
           throw new UserError(
@@ -428,7 +478,7 @@ async function upgradeModule(
           );
         }
       } else {
-        log.warn("Prosseguindo com --yes — sob seu risco.");
+        log.warn("Prosseguindo com flags de automação — sob seu risco.");
       }
     }
 
@@ -438,13 +488,13 @@ async function upgradeModule(
       newSnapshotDir,
     });
 
-    const decisions = await collectDecisions(plan, opts.yes ?? false);
+    const decisions = await collectDecisions(plan, resolveDecisionPolicy(opts));
     printPlanSummary(plan, decisions, installed.version, availableVersion, moduleName);
 
     // CLI v0.5.0+: detecta migrations Alembic novas no plano e avisa.
     notifyMigrationsIfPresent(plan, decisions);
 
-    if (!opts.dryRun && !opts.yes) {
+    if (!opts.dryRun && !isAutomatedRun(opts)) {
       const proceed = await confirm("Continuar?");
       if (!proceed) {
         throw new UserError("Upgrade cancelado. Nada foi modificado.");
@@ -549,7 +599,7 @@ async function upgradeAll(
 
 async function collectDecisions(
   plan: UpgradePlan,
-  autoYes: boolean,
+  policy: DecisionPolicy,
 ): Promise<UpgradeDecisions> {
   const modified = new Map<string, "overwrite" | "keep">();
   const noBaseDiff = new Map<string, "overwrite" | "keep">();
@@ -557,9 +607,12 @@ async function collectDecisions(
 
   for (const entry of plan.entries) {
     if (entry.status === "modified-locally") {
-      if (autoYes) {
+      if (policy.overwriteModified) {
         modified.set(entry.relPath, "overwrite");
       } else if (entry.sourceNewPath) {
+        // Sem --overwrite-modified: TTY pergunta; sem TTY (CI) → "keep"
+        // (askModifiedAction trata isso defensivamente). Aluno SEM ver
+        // prompt em CI tem upgrade seguro: novos copiados, modified intactos.
         const localContent = await readFileSafe(entry.destPath);
         const newContent = await readFileSafe(entry.sourceNewPath);
         modified.set(
@@ -568,7 +621,7 @@ async function collectDecisions(
         );
       }
     } else if (entry.status === "changed-remote-no-base") {
-      if (autoYes) {
+      if (policy.overwriteModified) {
         noBaseDiff.set(entry.relPath, "overwrite");
       } else if (entry.sourceNewPath) {
         const localContent = await readFileSafe(entry.destPath);
@@ -581,7 +634,7 @@ async function collectDecisions(
         );
       }
     } else if (entry.status === "deleted-in-new") {
-      if (autoYes) {
+      if (policy.deleteRemoved) {
         deleted.set(entry.relPath, "delete");
       } else {
         deleted.set(entry.relPath, await askDeletedAction(entry.relPath));

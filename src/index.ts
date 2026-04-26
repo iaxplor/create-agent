@@ -101,11 +101,26 @@ program
     "override do repo base (default: github:iaxplor/agent-templates)",
   )
   .option("--dry-run", "mostra o plano sem aplicar mudanças")
-  .option("--yes", "aceita sobrescritas e remoções sem prompt (cuidado)")
+  .option(
+    "--yes",
+    "[legacy v0.7.x] alias pra --accept-new + --overwrite-modified + --delete-removed",
+  )
   .option("--no-stash", "pula o prompt de git stash de backup")
   .option(
     "--check",
     "modo dry-run: lista atualizações pendentes e exit 1 se houver (CI gate)",
+  )
+  .option(
+    "--accept-new",
+    "v0.8.0+: aceita arquivos NOVOS sem prompt (não afeta modified)",
+  )
+  .option(
+    "--overwrite-modified",
+    "v0.8.0+: força overwrite em arquivos modified-locally (PERIGOSO — pode perder customizações)",
+  )
+  .option(
+    "--delete-removed",
+    "v0.8.0+: força delete em arquivos que sumiram no template novo",
   )
   .action(
     async (
@@ -116,6 +131,9 @@ program
         yes?: boolean;
         stash?: boolean;
         check?: boolean;
+        acceptNew?: boolean;
+        overwriteModified?: boolean;
+        deleteRemoved?: boolean;
       },
     ) => {
       // commander `--no-stash` seta `stash: false`. Normalizamos pra flag `noStash`.
@@ -125,6 +143,9 @@ program
         yes: options.yes,
         noStash: options.stash === false,
         check: options.check,
+        acceptNew: options.acceptNew,
+        overwriteModified: options.overwriteModified,
+        deleteRemoved: options.deleteRemoved,
       });
     },
   );
