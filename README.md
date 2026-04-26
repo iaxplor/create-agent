@@ -91,6 +91,7 @@ Roda 4 verificações:
 | **V2** | Versões disponíveis | Core ou módulos com atualização pendente (reusa `list`) |
 | **V3** | `min_core_version` | Módulo instalado requer core mais novo do que o do projeto (raro, indica edição manual ou downgrade do core) |
 | **V4** | Env vars `required` | Vars `required: true` no `template.json` ausentes no `.env.example` |
+| **V8** _(v0.8.0+)_ | `agent/*.template` pendentes | Arquivos `.template` gerados por upgrade PROTECTED esperando revisão manual |
 
 Output exemplo:
 
@@ -159,15 +160,21 @@ O comando:
 **Opções:**
 
 - `--dry-run` — mostra plano sem aplicar
-- `--yes` — aceita sobrescritas, remoções e prompts de incompatibilidade automaticamente (perigoso, mas útil em CI)
+- `--yes` _(legacy)_ — alias pra `--accept-new --overwrite-modified --delete-removed`. Mantido por retrocompatibilidade
+- `--accept-new` _(v0.8.0+)_ — aceita arquivos NOVOS sem prompt. Não afeta arquivos modificados localmente. **Default seguro pra CI**
+- `--overwrite-modified` _(v0.8.0+)_ — força overwrite em arquivos `modified-locally`. **PERIGOSO** — perde customizações
+- `--delete-removed` _(v0.8.0+)_ — força delete em arquivos que sumiram do template
 - `--no-stash` — pula prompt de git stash
 - `--template-source <url>` — override do repo base
-- `--check` _(v0.7.0+)_ — modo dry-run: lista atualizações pendentes, exit 1 se há (CI gate). Não baixa snapshots, não roda planUpgrade. Útil em pre-commit:
+- `--check` _(v0.7.0+)_ — modo dry-run: lista atualizações pendentes, exit 1 se há (CI gate)
 
-  ```yaml
-  - run: npx -y @iaxplor/create-agent@latest upgrade --check
-    # falha o build se há atualizações pendentes
-  ```
+**Categorias de proteção (CLI v0.8.0+)** — o upgrade trata arquivos diferente conforme localização:
+
+| Categoria | Comportamento | Exemplos |
+|---|---|---|
+| **PROTECTED** | NUNCA tocado pelo upgrade. Se template difere, gera `<arquivo>.template` lateral pra revisão manual | `agent/instructions.py`, `agent/agent.py`, `agent/tools/*` |
+| **MERGED** | Merge custom append-only + security baseline (.gitignore) ou dedup automático (.env.example) | `.gitignore`, `.env.example` |
+| **TRACKED** (default) | 3-way merge tradicional com prompt em arquivos modificados | `core/*`, `db/*`, `api/*`, `workers/*` |
 
 **Modo degradado**: se a tag da versão instalada não existir no repositório, o CLI opera sem snapshot base — qualquer arquivo diferente da nova versão é marcado como "modificado". Gera falsos positivos mas é seguro (nada é sobrescrito sem confirmação).
 
@@ -175,7 +182,17 @@ O comando:
 
 > **Nota v0.6.0**: comando `doctor` adicionado (read-only, sempre exit 0).
 
-> **Nota v0.7.0**: 3 melhorias agrupadas — `doctor --strict` + `upgrade --check` (CI gates) + severity badges no `list` (`major`/`minor`/`patch`). Follow-ups: `doctor v2` (modelos não registrados, tools não importadas, migrations pendentes), `--json` output em comandos read-only, primeiro vertical pack (clínica/odonto).
+> **Nota v0.7.0**: 3 melhorias agrupadas — `doctor --strict` + `upgrade --check` (CI gates) + severity badges no `list` (`major`/`minor`/`patch`).
+
+> ⚠️ **Nota v0.8.0 — Safe Upgrade (BREAKING SOFT)**: o `upgrade` agora protege `agent/*` (zona do aluno) E o `.gitignore` (security baseline). Mudanças visíveis:
+>
+> - **`agent/*` PROTECTED**: `upgrade --yes` NÃO sobrescreve mais arquivos em `agent/`. Se template do core trouxe atualizações, gera `<arquivo>.template` lateral. Comando `doctor` (V8) lembra dos pendentes.
+> - **`.gitignore` MERGED + security baseline**: append-only (preserva linhas custom do aluno) + reinjeta `credentials.json`/`client_secret_*.json`/`*.pem`/`*.key`/etc. mesmo se foram removidos.
+> - **`.env.example` dedup automático**: `add` e `upgrade` agora REMOVEM ocorrências duplicadas das vars do bloco gerenciado fora dele. Sem mais 38 ocorrências de `DOMAIN` em 167 linhas.
+> - **`--yes` SPLIT** em 3 flags granulares: `--accept-new` (seguro, default em CI), `--overwrite-modified` (explícito, perigoso), `--delete-removed` (explícito). `--yes` legacy = alias dos 3 (compat).
+> - **Recovery**: se você foi vítima de upgrade que apagou `agent/instructions.py` em versão anterior, recupere via `git log --oneline -- agent/instructions.py` + `git checkout <hash>~1 -- agent/instructions.py`. Stash automático antes do upgrade continua funcionando: `git stash list` + `git stash apply`.
+>
+> Follow-ups: `doctor v2` (modelos não registrados, tools não importadas, migrations pendentes), `--json` output, primeiro vertical pack (clínica/odonto).
 
 ## Convenção de nomenclatura de módulos
 
