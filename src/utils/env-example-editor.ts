@@ -17,6 +17,23 @@ import type {
   ModuleTemplateJson,
 } from "../types.js";
 
+/** Subset estrutural do `ModuleTemplateJson` que `updateEnvExample` consome.
+ *
+ *  Permite reuso do helper pra qualquer manifest que tenha esses 3 campos —
+ *  inclusive o core (que NÃO satisfaz `ModuleTemplateJson` completo, faltando
+ *  `requires`, `min_core_version`, `files`, `patches`). Adicionado em CLI
+ *  v0.5.0 quando upgrade do core passou a propagar env_vars novas (bug #2
+ *  da paridade `add`/`upgrade`).
+ *
+ *  `ModuleTemplateJson` satisfaz este tipo estruturalmente — chamadas
+ *  existentes em `add.ts` continuam funcionando sem mudança.
+ */
+export interface EnvBlockTarget {
+  name: string;
+  version: string;
+  env_vars: EnvVarDefinition[];
+}
+
 const { pathExists, readFile, writeFile } = fsExtra;
 
 const ENV_EXAMPLE_FILENAME = ".env.example";
@@ -65,7 +82,7 @@ function renderEnvLine(envVar: EnvVarDefinition): string {
 }
 
 /** Gera o bloco completo (delimitadores + linhas) pra um módulo. */
-function renderBlock(manifest: ModuleTemplateJson): string {
+function renderBlock(manifest: EnvBlockTarget): string {
   const lines: string[] = [];
   lines.push(envBlockStart(manifest.name, manifest.version));
   for (const envVar of manifest.env_vars) {
@@ -102,7 +119,7 @@ function findOutOfBlockDuplicates(
 
 export interface UpdateEnvExampleOptions {
   projectDir: string;
-  manifest: ModuleTemplateJson;
+  manifest: EnvBlockTarget;
   dryRun: boolean;
 }
 

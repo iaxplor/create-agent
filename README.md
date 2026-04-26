@@ -93,20 +93,27 @@ O comando:
 
 1. Valida que é projeto IAxplor (`agente.config.json`)
 2. Baixa snapshots da versão instalada e da nova via git tags (`v0.1.0`, `v0.2.0`, etc.)
-3. Pra cada arquivo do core/módulo, classifica: novo, inalterado, modificado localmente, deletado upstream
-4. Prompta o usuário pra arquivos modificados: `[S]obrescrever / [M]anter / [D]iff`
-5. Oferece backup via `git stash push` antes de aplicar
-6. Aplica mudanças + atualiza `agente.config.json.coreVersion`
-7. Mostra warnings sobre módulos afetados (patches manuais sobrescritos)
+3. **(Módulos, v0.5.0+)** Valida `min_core_version` da nova versão contra o core instalado — prompt cancelável se incompatível
+4. Pra cada arquivo do core/módulo, classifica: novo, inalterado, modificado localmente, deletado upstream
+5. Prompta o usuário pra arquivos modificados: `[S]obrescrever / [M]anter / [D]iff`
+6. **(v0.5.0+)** Detecta migrations Alembic novas no plano e avisa pra rodar `uv run alembic upgrade head` após o upgrade
+7. Oferece backup via `git stash push` antes de aplicar
+8. Aplica mudanças + atualiza `agente.config.json.coreVersion`
+9. **(v0.5.0+)** Propaga `env_vars` da nova versão pro `.env.example` (paridade com `add`)
+10. **(v0.5.0+, módulos)** Propaga `dependencies` da nova versão pro `pyproject.toml` (paridade com `add`)
+11. **(v0.5.0+, módulos)** Re-exibe `patches[]` se a descrição mudou entre versões (added/removed/changed)
+12. Mostra warnings sobre módulos afetados (patches manuais sobrescritos)
 
 **Opções:**
 
 - `--dry-run` — mostra plano sem aplicar
-- `--yes` — aceita sobrescritas e remoções automaticamente (perigoso, mas útil em CI)
+- `--yes` — aceita sobrescritas, remoções e prompts de incompatibilidade automaticamente (perigoso, mas útil em CI)
 - `--no-stash` — pula prompt de git stash
 - `--template-source <url>` — override do repo base
 
 **Modo degradado**: se a tag da versão instalada não existir no repositório, o CLI opera sem snapshot base — qualquer arquivo diferente da nova versão é marcado como "modificado". Gera falsos positivos mas é seguro (nada é sobrescrito sem confirmação).
+
+> **Nota v0.5.0**: até v0.4.x, o `upgrade` não chamava 3 dos 4 utilitários que `add` chama (env vars, deps, validação `min_core_version`). Quando google-calendar 0.4.0 introduziu 4 env vars novas (`GCAL_CONFIRMATION_*`), o bug ficou visível. v0.5.0 fecha essa paridade — `add` e `upgrade` agora têm o mesmo comportamento de propagação. Follow-ups planejados: severity badges no `list`, comando `doctor`, tests E2E de comandos full.
 
 ## Convenção de nomenclatura de módulos
 

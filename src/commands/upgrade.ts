@@ -15,12 +15,21 @@
 
 import path from "node:path";
 
+import fsExtra from "fs-extra";
 import chalk from "chalk";
 
-import type { ModuleTemplateJson } from "../types.js";
+import type {
+  EnvVarDefinition,
+  ModuleTemplateJson,
+  PatchDescription,
+} from "../types.js";
 import { printBanner } from "../utils/banner.js";
 import { readAgenteConfig } from "../utils/config-reader.js";
 import { confirm } from "../utils/confirm.js";
+import {
+  type EnvBlockTarget,
+  updateEnvExample,
+} from "../utils/env-example-editor.js";
 import { UserError } from "../utils/errors.js";
 import { hasGitInstalled, isGitRepo, stashPush } from "../utils/git-stash.js";
 import {
@@ -28,6 +37,7 @@ import {
   askModifiedAction,
 } from "../utils/interactive-file-action.js";
 import { createSpinner, log } from "../utils/logger.js";
+import { updatePyproject } from "../utils/pyproject-editor.js";
 import { parseModuleManifest } from "../utils/template-manifest.js";
 import {
   cleanupSnapshot,
@@ -39,12 +49,15 @@ import {
   listProjectComponents,
   resolveInstalledCoreVersion,
 } from "../utils/version-manifest.js";
+import { isCompatible } from "../utils/version-check.js";
 import {
   executeUpgrade,
   type UpgradeDecisions,
   type UpgradeResult,
 } from "../utils/upgrade-executor.js";
 import { planUpgrade, type UpgradePlan } from "../utils/upgrade-planner.js";
+
+const { readJson } = fsExtra;
 
 export interface UpgradeOptions {
   templateSource?: string;
@@ -188,6 +201,19 @@ async function upgradeCore(
         : `Core atualizado de v${installedVersion} pra v${availableVersion}`,
     );
 
+    // Fase 6B — Propagação env_vars (CLI v0.5.0+ — paridade `add`/`upgrade`)
+    // Core não tem `dependencies`/`min_core_version`/`patches`, mas tem
+    // `env_vars` que podem mudar entre versões (ex.: BUFFER_* da Sessão A).
+    const coreEnvTarget = await loadCoreEnvBlockTarget(newSnapshotDir);
+    if (coreEnvTarget) {
+      const envChanges = await updateEnvExample({
+        projectDir: cwd,
+        manifest: coreEnvTarget,
+        dryRun: opts.dryRun ?? false,
+      });
+      reportEnvExampleChanges(envChanges, ".env.example");
+    }
+
     // Fase 7 — Mensagem pós-upgrade
     await printPostUpgradeMessage({
       cwd,
@@ -202,6 +228,55 @@ async function upgradeCore(
       cleanupSnapshot(oldSnapshotDir),
       cleanupSnapshot(newSnapshotDir),
     ]);
+  }
+}
+
+/** Lê `template.json` do snapshot do core e extrai `EnvBlockTarget`.
+ *
+ *  Core NÃO satisfaz `ModuleTemplateJson` completo (faltam `requires`,
+ *  `min_core_version`, `files`, `patches`), então `parseModuleManifest`
+ *  não funciona. Aqui parseamos só os 3 campos que o `updateEnvExample`
+ *  precisa: `name`, `version`, `env_vars`.
+ *
+ *  Retorna `null` se algo der errado — caller skipa propagação de env
+ *  e segue (degradação graciosa).
+ */
+export async function loadCoreEnvBlockTarget(
+  snapshotDir: string,
+): Promise<EnvBlockTarget | null> {
+  try {
+    const manifestPath = path.join(snapshotDir, "template.json");
+    const raw = (await readJson(manifestPath)) as {
+      name?: string;
+      version?: string;
+      env_vars?: unknown[];
+    };
+    if (typeof raw.name !== "string" || typeof raw.version !== "string") {
+      return null;
+    }
+    if (!Array.isArray(raw.env_vars)) {
+      return null;
+    }
+    const envVars: EnvVarDefinition[] = [];
+    for (const v of raw.env_vars) {
+      if (
+        typeof v === "object" &&
+        v !== null &&
+        typeof (v as { name?: unknown }).name === "string"
+      ) {
+        const obj = v as Record<string, unknown>;
+        envVars.push({
+          name: obj.name as string,
+          description:
+            typeof obj.description === "string" ? obj.description : undefined,
+          required: typeof obj.required === "boolean" ? obj.required : undefined,
+          default: typeof obj.default === "string" ? obj.default : undefined,
+        });
+      }
+    }
+    return { name: raw.name, version: raw.version, env_vars: envVars };
+  } catch {
+    return null;
   }
 }
 
@@ -267,10 +342,36 @@ async function upgradeModule(
     // Mas: os paths destino NÃO são necessariamente os relativos do
     // snapshot (ex.: files/channels/evolution/* → channels/evolution/*
     // — happen to match nesse módulo). Pra MVP, suporta quando from===to.
-    const manifestPath = path.join(newSnapshotDir, "template.json");
-    const manifest: ModuleTemplateJson = await parseModuleManifest(newSnapshotDir);
-    void manifest; // (reservado pra validações futuras de mapping)
-    void manifestPath;
+    const newManifest: ModuleTemplateJson = await parseModuleManifest(newSnapshotDir);
+    const oldManifest = await tryParseModuleManifest(oldSnapshotDir);
+
+    // Validação CLI v0.5.0+: `min_core_version` da nova versão precisa ser
+    // compatível com o core instalado. Se incompatível: prompt (cancelável)
+    // ou warning silencioso com `--yes`.
+    const coreVersion = resolveInstalledCoreVersion(config);
+    if (!isCompatible(coreVersion, newManifest.min_core_version)) {
+      console.log();
+      log.warn(
+        `Esta versão de '${moduleName}' (${availableVersion}) requer ` +
+          `core >= ${newManifest.min_core_version}, mas seu projeto está ` +
+          `em ${coreVersion}.`,
+      );
+      console.log(
+        chalk.gray(
+          `   Recomendado: rode 'create-agent upgrade core' antes.`,
+        ),
+      );
+      if (!opts.yes) {
+        const cont = await confirm("Continuar mesmo assim?");
+        if (!cont) {
+          throw new UserError(
+            "Upgrade cancelado por incompatibilidade de versão.",
+          );
+        }
+      } else {
+        log.warn("Prosseguindo com --yes — sob seu risco.");
+      }
+    }
 
     const plan = await planUpgrade({
       projectDir: cwd,
@@ -280,6 +381,9 @@ async function upgradeModule(
 
     const decisions = await collectDecisions(plan, opts.yes ?? false);
     printPlanSummary(plan, decisions, installed.version, availableVersion, moduleName);
+
+    // CLI v0.5.0+: detecta migrations Alembic novas no plano e avisa.
+    notifyMigrationsIfPresent(plan, decisions);
 
     if (!opts.dryRun && !opts.yes) {
       const proceed = await confirm("Continuar?");
@@ -300,6 +404,29 @@ async function upgradeModule(
       target: moduleName,
       dryRun: opts.dryRun ?? false,
     });
+
+    // CLI v0.5.0+ — paridade `add`/`upgrade`: propaga env_vars e
+    // dependencies da nova versão. Sem isso, vars novas (ex.: 4
+    // GCAL_CONFIRMATION_* da Sessão D) somem do .env.example após
+    // upgrade.
+    const envChanges = await updateEnvExample({
+      projectDir: cwd,
+      manifest: newManifest,
+      dryRun: opts.dryRun ?? false,
+    });
+    reportEnvExampleChanges(envChanges, ".env.example");
+
+    const pyprojectChanges = await updatePyproject({
+      projectDir: cwd,
+      dependencies: newManifest.dependencies,
+      dryRun: opts.dryRun ?? false,
+    });
+    reportPyprojectChanges(pyprojectChanges);
+
+    // CLI v0.5.0+: diff de patches descritivos (re-exibe se mudaram).
+    if (oldManifest) {
+      reportPatchesDiff(oldManifest.patches, newManifest.patches, moduleName);
+    }
 
     console.log();
     log.success(
@@ -635,6 +762,180 @@ async function printModuleUpgradesAvailable(
     chalk.gray(
       `   Execute ${chalk.cyan("create-agent upgrade <modulo>")} pra atualizar individualmente ` +
         `ou ${chalk.cyan("create-agent upgrade all")} pra todos.`,
+    ),
+  );
+  console.log();
+}
+
+// --------------------------------------------------------------------------- //
+//  Helpers v0.5.0 — paridade `add`/`upgrade`
+// --------------------------------------------------------------------------- //
+
+/** Tenta carregar manifest do snapshot OLD pra comparar patches. Retorna
+ *  null se snapshot ausente (modo degradado) ou parse falhou — caller
+ *  pula o diff de patches sem erro. */
+async function tryParseModuleManifest(
+  snapshotDir: string | null,
+): Promise<ModuleTemplateJson | null> {
+  if (!snapshotDir) return null;
+  try {
+    return await parseModuleManifest(snapshotDir);
+  } catch {
+    return null;
+  }
+}
+
+/** Detecta migrations Alembic no plano (arquivos copiados/sobrescritos
+ *  em `migrations/versions/*.py`) e imprime aviso pra rodar `alembic
+ *  upgrade head`. CLI NÃO executa — depende de DB up + env vars válidas
+ *  no momento, fora do escopo do upgrade.
+ */
+export function notifyMigrationsIfPresent(
+  plan: UpgradePlan,
+  decisions: UpgradeDecisions,
+): void {
+  const willChange = plan.entries.filter((e) => {
+    if (!e.relPath.startsWith("migrations/versions/")) return false;
+    if (!e.relPath.endsWith(".py")) return false;
+    if (e.status === "new") return true;
+    if (e.status === "unchanged-from-base") return true; // silent overwrite
+    if (e.status === "modified-locally") {
+      return decisions.modifiedLocally.get(e.relPath) === "overwrite";
+    }
+    if (e.status === "changed-remote-no-base") {
+      return decisions.changedRemoteNoBase.get(e.relPath) === "overwrite";
+    }
+    return false;
+  });
+  if (willChange.length === 0) return;
+
+  console.log();
+  console.log(
+    chalk.yellow.bold(
+      `⚠  Esta atualização traz ${willChange.length} migration(s) Alembic.`,
+    ),
+  );
+  for (const m of willChange) {
+    console.log(chalk.yellow(`   • ${m.relPath}`));
+  }
+  console.log();
+  console.log(
+    chalk.yellow(`   Após o upgrade terminar, rode no seu projeto:\n`),
+  );
+  console.log(chalk.cyan(`       uv run alembic upgrade head\n`));
+}
+
+/** Imprime resultado do `updateEnvExample` (criado/replaced/duplicates). */
+function reportEnvExampleChanges(
+  changes: import("../types.js").EnvExampleChanges,
+  filename: string,
+): void {
+  if (!changes.applied) {
+    log.warn(
+      `${filename} não foi atualizado: ${changes.errorMessage ?? "erro desconhecido"}.`,
+    );
+    return;
+  }
+  if (changes.created) {
+    log.success(`${filename} criado com bloco do módulo (${changes.varCount} vars).`);
+  } else if (changes.replaced) {
+    log.success(
+      `${filename}: bloco substituído (${changes.varCount} vars na nova versão).`,
+    );
+  } else {
+    log.success(
+      `${filename}: bloco adicionado (${changes.varCount} vars).`,
+    );
+  }
+  if (changes.outOfBlockDuplicates.length > 0) {
+    log.warn(
+      `${filename}: vars duplicadas fora do bloco — revise: ${changes.outOfBlockDuplicates.join(", ")}`,
+    );
+  }
+}
+
+/** Imprime resultado do `updatePyproject` (added / alreadyPresent /
+ *  versionConflicts). */
+function reportPyprojectChanges(
+  changes: import("../types.js").PyprojectChanges,
+): void {
+  if (!changes.applied) {
+    log.warn(
+      `pyproject.toml não foi atualizado: ${changes.errorMessage ?? "erro desconhecido"}.`,
+    );
+    return;
+  }
+  if (changes.added.length > 0) {
+    log.success(
+      `pyproject.toml: ${changes.added.length} dep(s) adicionada(s) — ${changes.added.join(", ")}.`,
+    );
+  }
+  if (changes.versionConflicts.length > 0) {
+    log.warn(
+      `pyproject.toml: conflitos de versão (não sobrescrito):\n` +
+        changes.versionConflicts
+          .map(
+            (c) =>
+              `   • ${c.name}: instalado '${c.existing}', requerido '${c.requested}'`,
+          )
+          .join("\n"),
+    );
+  }
+}
+
+/** Compara patches[] do manifest antigo vs novo. Imprime apenas se
+ *  houve mudança (added, removed, ou description alterada).
+ */
+export function reportPatchesDiff(
+  oldPatches: PatchDescription[],
+  newPatches: PatchDescription[],
+  moduleName: string,
+): void {
+  const oldByFile = new Map(oldPatches.map((p) => [p.file, p.description]));
+  const newByFile = new Map(newPatches.map((p) => [p.file, p.description]));
+
+  const added: PatchDescription[] = [];
+  const removed: PatchDescription[] = [];
+  const changed: { file: string; oldDesc: string; newDesc: string }[] = [];
+
+  for (const [file, desc] of newByFile) {
+    if (!oldByFile.has(file)) {
+      added.push({ file, description: desc });
+    } else if (oldByFile.get(file) !== desc) {
+      changed.push({ file, oldDesc: oldByFile.get(file)!, newDesc: desc });
+    }
+  }
+  for (const [file, desc] of oldByFile) {
+    if (!newByFile.has(file)) {
+      removed.push({ file, description: desc });
+    }
+  }
+
+  if (added.length === 0 && removed.length === 0 && changed.length === 0) {
+    return; // sem mudança — não polui output
+  }
+
+  console.log();
+  console.log(
+    chalk.bold(`📝 Patches do '${moduleName}' alterados nesta versão:`),
+  );
+  for (const p of added) {
+    console.log(chalk.green(`   + ${p.file}`));
+    console.log(chalk.gray(`     ${p.description}`));
+  }
+  for (const p of removed) {
+    console.log(chalk.red(`   - ${p.file}`));
+    console.log(chalk.gray(`     (era: ${p.description})`));
+  }
+  for (const c of changed) {
+    console.log(chalk.yellow(`   ↻ ${c.file}`));
+    console.log(chalk.gray(`     antes: ${c.oldDesc}`));
+    console.log(chalk.gray(`     agora: ${c.newDesc}`));
+  }
+  console.log();
+  console.log(
+    chalk.gray(
+      `   Reaplique manualmente nos arquivos correspondentes (ou consulte o setup_doc).`,
     ),
   );
   console.log();
