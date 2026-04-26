@@ -5,6 +5,7 @@ import { Command } from "commander";
 
 import { addCommand } from "./commands/add.js";
 import { createCommand } from "./commands/create.js";
+import { doctorCommand } from "./commands/doctor.js";
 import { listCommand } from "./commands/list.js";
 import { upgradeCommand } from "./commands/upgrade.js";
 import { CLI_VERSION } from "./constants.js";
@@ -67,6 +68,20 @@ program
   )
   .action(async (options: { templateSource?: string }) => {
     await listCommand(options);
+  });
+
+// --- Subcomando `doctor` --------------------------------------------------
+program
+  .command("doctor")
+  .description(
+    "Diagnóstico read-only do projeto: estrutura, versões, min_core_version, env vars required.",
+  )
+  .option(
+    "--template-source <url>",
+    "override do repo base (default: github:iaxplor/agent-templates)",
+  )
+  .action(async (options: { templateSource?: string }) => {
+    await doctorCommand(options);
   });
 
 // --- Subcomando `upgrade` -------------------------------------------------

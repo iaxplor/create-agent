@@ -73,6 +73,51 @@ evolution-api   0.1.0 → 0.2.0  (atualização disponível)
 
 Se tudo estiver em dia, mostra `✅ Tudo atualizado.`
 
+### `doctor` — diagnóstico read-only do projeto _(v0.6.0+)_
+
+```bash
+cd meu-agente
+npx @iaxplor/create-agent doctor
+```
+
+Validador read-only que cruza `agente.config.json` com o estado real do projeto. Reporta findings agrupados por seção, com sumário no final. **Sempre exit 0** — informativo, não CI gate.
+
+Roda 4 verificações:
+
+| # | Categoria | Detecta |
+|---|-----------|---------|
+| **V1** | Estrutura de `agente.config.json` | Campos obrigatórios ausentes, semver inválido em `coreVersion` ou `module.version` |
+| **V2** | Versões disponíveis | Core ou módulos com atualização pendente (reusa `list`) |
+| **V3** | `min_core_version` | Módulo instalado requer core mais novo do que o do projeto (raro, indica edição manual ou downgrade do core) |
+| **V4** | Env vars `required` | Vars `required: true` no `template.json` ausentes no `.env.example` |
+
+Output exemplo:
+
+```
+agente.config.json
+  ✓ estrutura válida
+
+core 0.6.0
+  ✓ última versão
+
+google-calendar 0.4.0
+  ⚠ atualização disponível: 0.4.1 (rode 'create-agent upgrade google-calendar')
+  ✓ compatível com core 0.6.0 (requer >= 0.5.0)
+
+.env.example (google-calendar)
+  ✗ GCAL_CLIENT_ID (required) ausente no .env.example
+  ✗ GCAL_CLIENT_SECRET (required) ausente no .env.example
+
+────────────────────────────────────────
+2 erro(s), 1 warning(s), 4 OK
+```
+
+**Out of scope v0.6.0** (vira `doctor v2`): modelos SQLModel não registrados em `db/models/__init__.py` (precisa AST), tools de módulo não importadas em `agent/agent.py` (precisa metadata futura), migrations pendentes (precisa DB up).
+
+**Opções:**
+
+- `--template-source <url>` — override do repo base
+
 ### `upgrade [target]` — atualizar core ou módulo
 
 ```bash
@@ -113,7 +158,9 @@ O comando:
 
 **Modo degradado**: se a tag da versão instalada não existir no repositório, o CLI opera sem snapshot base — qualquer arquivo diferente da nova versão é marcado como "modificado". Gera falsos positivos mas é seguro (nada é sobrescrito sem confirmação).
 
-> **Nota v0.5.0**: até v0.4.x, o `upgrade` não chamava 3 dos 4 utilitários que `add` chama (env vars, deps, validação `min_core_version`). Quando google-calendar 0.4.0 introduziu 4 env vars novas (`GCAL_CONFIRMATION_*`), o bug ficou visível. v0.5.0 fecha essa paridade — `add` e `upgrade` agora têm o mesmo comportamento de propagação. Follow-ups planejados: severity badges no `list`, comando `doctor`, tests E2E de comandos full.
+> **Nota v0.5.0**: até v0.4.x, o `upgrade` não chamava 3 dos 4 utilitários que `add` chama (env vars, deps, validação `min_core_version`). Quando google-calendar 0.4.0 introduziu 4 env vars novas (`GCAL_CONFIRMATION_*`), o bug ficou visível. v0.5.0 fecha essa paridade — `add` e `upgrade` agora têm o mesmo comportamento de propagação.
+
+> **Nota v0.6.0**: comando `doctor` adicionado (read-only, sempre exit 0). Follow-ups planejados: severity badges no `list` (major/minor/patch), `doctor v2` (modelos não registrados, tools não importadas, migrations pendentes), `--strict` em `doctor`, `--check` em `upgrade` (CI gates), tests E2E de comandos full.
 
 ## Convenção de nomenclatura de módulos
 
