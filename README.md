@@ -64,11 +64,12 @@ cd meu-agente
 npx @iaxplor/create-agent list
 ```
 
-Read-only. Consulta `agente.config.json` local e compara com as versões mais recentes no repositório de templates. Mostra tabela:
+Read-only. Consulta `agente.config.json` local e compara com as versões mais recentes no repositório de templates. Mostra tabela com **severity badges** (v0.7.0+) — `(patch)` cinza pra bug fix, `(minor)` amarelo pra feature nova, `(major)` vermelho pra breaking change. Calibra urgência sem precisar abrir o CHANGELOG:
 
 ```
-core            0.1.0 → 0.2.0  (atualização disponível)
-evolution-api   0.1.0 → 0.2.0  (atualização disponível)
+core            0.5.0 → 0.6.0  (atualização disponível)  (minor)
+evolution-api   0.3.0 → 0.4.0  (atualização disponível)  (minor)
+google-calendar 0.4.0 → 0.4.1  (atualização disponível)  (patch)
 ```
 
 Se tudo estiver em dia, mostra `✅ Tudo atualizado.`
@@ -117,6 +118,12 @@ google-calendar 0.4.0
 **Opções:**
 
 - `--template-source <url>` — override do repo base
+- `--strict` _(v0.7.0+)_ — modo CI gate: exit 1 se há findings de nível `error`. Warnings continuam exit 0. Útil em Github Actions:
+
+  ```yaml
+  - run: npx -y @iaxplor/create-agent@latest doctor --strict
+    working-directory: ./meu-bot
+  ```
 
 ### `upgrade [target]` — atualizar core ou módulo
 
@@ -155,12 +162,20 @@ O comando:
 - `--yes` — aceita sobrescritas, remoções e prompts de incompatibilidade automaticamente (perigoso, mas útil em CI)
 - `--no-stash` — pula prompt de git stash
 - `--template-source <url>` — override do repo base
+- `--check` _(v0.7.0+)_ — modo dry-run: lista atualizações pendentes, exit 1 se há (CI gate). Não baixa snapshots, não roda planUpgrade. Útil em pre-commit:
+
+  ```yaml
+  - run: npx -y @iaxplor/create-agent@latest upgrade --check
+    # falha o build se há atualizações pendentes
+  ```
 
 **Modo degradado**: se a tag da versão instalada não existir no repositório, o CLI opera sem snapshot base — qualquer arquivo diferente da nova versão é marcado como "modificado". Gera falsos positivos mas é seguro (nada é sobrescrito sem confirmação).
 
 > **Nota v0.5.0**: até v0.4.x, o `upgrade` não chamava 3 dos 4 utilitários que `add` chama (env vars, deps, validação `min_core_version`). Quando google-calendar 0.4.0 introduziu 4 env vars novas (`GCAL_CONFIRMATION_*`), o bug ficou visível. v0.5.0 fecha essa paridade — `add` e `upgrade` agora têm o mesmo comportamento de propagação.
 
-> **Nota v0.6.0**: comando `doctor` adicionado (read-only, sempre exit 0). Follow-ups planejados: severity badges no `list` (major/minor/patch), `doctor v2` (modelos não registrados, tools não importadas, migrations pendentes), `--strict` em `doctor`, `--check` em `upgrade` (CI gates), tests E2E de comandos full.
+> **Nota v0.6.0**: comando `doctor` adicionado (read-only, sempre exit 0).
+
+> **Nota v0.7.0**: 3 melhorias agrupadas — `doctor --strict` + `upgrade --check` (CI gates) + severity badges no `list` (`major`/`minor`/`patch`). Follow-ups: `doctor v2` (modelos não registrados, tools não importadas, migrations pendentes), `--json` output em comandos read-only, primeiro vertical pack (clínica/odonto).
 
 ## Convenção de nomenclatura de módulos
 
