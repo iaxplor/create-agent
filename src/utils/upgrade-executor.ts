@@ -22,10 +22,11 @@ import {
   readAgenteConfig,
   writeAgenteConfig,
 } from "./config-reader.js";
+import { mergeGitignore } from "./gitignore-merger.js";
 import type { DeletedAction, FileAction } from "./interactive-file-action.js";
 import type { PlanEntry, UpgradePlan } from "./upgrade-planner.js";
 
-const { copy, ensureDir, remove } = fsExtra;
+const { copy, ensureDir, pathExists, readFile, remove, writeFile } = fsExtra;
 
 /** Decisões do usuário por arquivo (keyed por `relPath`). */
 export interface UpgradeDecisions {
@@ -110,10 +111,8 @@ export async function executeUpgrade(
         break;
 
       case "merge":
-        // Implementação real do merge fica em Bloco B (gitignore-merger).
-        // Por ora, comportamento conservador: marca como kept (não toca).
-        // TODO(v0.8.0 Bloco B): chamar mergeFile(entry, ...) aqui.
-        result.kept.push(entry.relPath);
+        if (!opts.dryRun) await doMerge(entry);
+        result.merged.push(entry.relPath);
         break;
     }
   }
@@ -195,6 +194,46 @@ async function doGenerateTemplate(entry: PlanEntry): Promise<void> {
   const templatePath = `${entry.destPath}.template`;
   await ensureDir(path.dirname(templatePath));
   await copy(entry.sourceNewPath, templatePath, { overwrite: true });
+}
+
+/** Aplica merge custom em arquivos MERGED (.gitignore por enquanto;
+ *  .env.example tem caminho próprio via env-example-editor já existente).
+ *
+ *  Pra .gitignore: usa mergeGitignore (append-only + security baseline).
+ *  Pra .env.example: o env-example-editor é chamado pelo upgrade.ts em
+ *  fase posterior (paridade com `add`); aqui é no-op pra evitar dupla
+ *  escrita. */
+async function doMerge(entry: PlanEntry): Promise<void> {
+  if (!entry.sourceNewPath) {
+    throw new Error(
+      `Entry ${entry.relPath} marcado como merged mas sem sourceNewPath`,
+    );
+  }
+  const baseName = path.basename(entry.relPath);
+
+  if (baseName === ".gitignore") {
+    const localContent = (await pathExists(entry.destPath))
+      ? await readFile(entry.destPath, "utf8")
+      : "";
+    const templateContent = await readFile(entry.sourceNewPath, "utf8");
+    const merged = mergeGitignore(localContent, templateContent);
+    await ensureDir(path.dirname(entry.destPath));
+    await writeFile(entry.destPath, merged, "utf8");
+    return;
+  }
+
+  if (baseName === ".env.example") {
+    // .env.example tem fluxo próprio via env-example-editor (paridade com
+    // `add` — atualizado em upgrade.ts após executeUpgrade). Aqui é no-op
+    // pra evitar dupla escrita. Bloco C (US-3) adiciona dedup ao editor.
+    return;
+  }
+
+  // Defensivo — se MERGED_FILES ganhar mais entradas no futuro, falha
+  // explícita pra forçar implementação aqui.
+  throw new Error(
+    `doMerge: arquivo '${entry.relPath}' marcado como merged mas sem handler`,
+  );
 }
 
 async function updateConfigVersion(

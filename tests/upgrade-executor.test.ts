@@ -178,3 +178,77 @@ describe("executeUpgrade — generate-template (PROTECTED agent/*)", () => {
     expect(result.dryRun).toBe(true);
   });
 });
+
+// =========================================================================== //
+//  Action 'merge' — Bloco B (US-2)
+// =========================================================================== //
+
+describe("executeUpgrade — merge (.gitignore via gitignore-merger)", () => {
+  it("merge .gitignore preserva linha custom do aluno (credentials.json)", async () => {
+    // Cenário do feedback #2: aluno tem credentials.json no .gitignore,
+    // template novo NÃO tem. Após upgrade, linha deve sobreviver.
+    await writeFile(
+      join(projectDir, ".gitignore"),
+      "*.pyc\n.env\ncredentials.json\n",
+    );
+    const sourceNewPath = await writeSnapshotFile(".gitignore", "*.pyc\n.env\n");
+
+    const plan = planWith([
+      {
+        relPath: ".gitignore",
+        status: "merged",
+        destPath: join(projectDir, ".gitignore"),
+        sourceNewPath,
+      },
+    ]);
+
+    const result = await executeUpgrade({
+      plan,
+      decisions: emptyDecisions(),
+      projectDir,
+      newVersion: "0.6.0",
+      target: "core",
+      dryRun: false,
+    });
+
+    const final = await readFile(join(projectDir, ".gitignore"), "utf8");
+    expect(final).toContain("credentials.json"); // ✓ preservada
+    expect(final).toContain("*.pyc");
+    expect(final).toContain(".env");
+    // Baseline também é injetada (cobre cenário do aluno que removeu)
+    expect(final).toContain("client_secret_*.json");
+    expect(final).toContain("*.pem");
+
+    expect(result.merged).toEqual([".gitignore"]);
+  });
+
+  it("merge .env.example é no-op (env-example-editor cuida via fluxo do upgrade)", async () => {
+    await writeFile(join(projectDir, ".env.example"), "DOMAIN=meudominio\n");
+    const sourceNewPath = await writeSnapshotFile(".env.example", "DOMAIN=\n");
+
+    const plan = planWith([
+      {
+        relPath: ".env.example",
+        status: "merged",
+        destPath: join(projectDir, ".env.example"),
+        sourceNewPath,
+      },
+    ]);
+
+    const result = await executeUpgrade({
+      plan,
+      decisions: emptyDecisions(),
+      projectDir,
+      newVersion: "0.6.0",
+      target: "core",
+      dryRun: false,
+    });
+
+    // Conteúdo NÃO alterado pelo executor (fluxo do upgrade.ts trata depois)
+    const final = await readFile(join(projectDir, ".env.example"), "utf8");
+    expect(final).toBe("DOMAIN=meudominio\n");
+
+    // Mas reportado como merged (pra contagem)
+    expect(result.merged).toEqual([".env.example"]);
+  });
+});
