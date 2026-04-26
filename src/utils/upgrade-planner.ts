@@ -1,16 +1,29 @@
-// Planner do upgrade: classifica cada arquivo em 1 de 6 estados possíveis.
+// Planner do upgrade: classifica cada arquivo em 1 de 8 estados possíveis.
 //
 // PURE: não faz I/O além de leitura/hashing. Não prompts, não escreve.
 // Retorna uma estrutura imutável que o executor + orchestration layer
 // consomem pra decidir (prompts) e aplicar (writes).
 //
-// Os 6 estados:
-//   - "new":                       existe no novo, não existe local → copy silent
+// Categorização (CLI v0.8.0+, ADR-006):
+//   IMMUTABLE — exact match em IMMUTABLE_FILES. Ignorado pelo planner; CLI
+//               atualiza programaticamente via outros helpers (ex.: config-reader).
+//   PROTECTED — prefix match em PROTECTED_PATH_PREFIXES. NUNCA copia. Se
+//               template difere, gera <path>.template lateral pro aluno
+//               revisar manualmente. Cobre `agent/**` (zona do aluno).
+//   MERGED    — exact match em MERGED_FILES. Merge custom (append-only,
+//               dedup), nunca overwrite cego. Cobre `.gitignore`, `.env.example`.
+//   TRACKED   — tudo o mais. 3-way merge tradicional com prompt em
+//               modified-locally.
+//
+// Os 8 estados (FileStatus):
+//   - "new":                       TRACKED, existe no novo, não existe local → copy silent
 //   - "same-as-new":               local já == novo (em dia) → skip
-//   - "unchanged-from-base":       local == base (aluno não mexeu, upstream mudou) → copy silent
-//   - "modified-locally":          local != base e local != novo → prompt [S/M/D]
-//   - "changed-remote-no-base":    base não disponível, local != novo → prompt com warning
-//   - "deleted-in-new":            existe local + base, não existe novo → prompt [R/K]
+//   - "unchanged-from-base":       TRACKED, local == base, upstream mudou → copy silent
+//   - "modified-locally":          TRACKED, local != base e local != novo → prompt [S/M/D]
+//   - "changed-remote-no-base":    TRACKED, base não disponível, local != novo → prompt com warning
+//   - "deleted-in-new":            TRACKED, existe local + base, não existe novo → prompt [R/K]
+//   - "protected-skipped":         PROTECTED, template difere ou ausente local → gera .template
+//   - "merged":                    MERGED, custom merge (gitignore-merger / env-dedup)
 
 import path from "node:path";
 
@@ -21,16 +34,46 @@ import { hashFile } from "./file-hasher.js";
 const { pathExists, readdir } = fsExtra;
 
 /**
- * Arquivos que NUNCA devem ser tocados pelo upgrade — são "state vivo" do
- * projeto (config do aluno, não template).
- *
- * `agente.config.json` em especial: contém a lista de módulos instalados
- * e metadata. O CLI atualiza `coreVersion`/`modules` programaticamente via
- * `config-reader`, nunca copiando do template.
+ * IMMUTABLE — arquivos NUNCA tocados pelo planner. CLI atualiza via outros
+ * helpers (ex.: `agente.config.json` é gerenciado pelo `config-reader`).
  */
-const PROTECTED_FILES = new Set<string>([
+const IMMUTABLE_FILES = new Set<string>([
   "agente.config.json",
 ]);
+
+/**
+ * PROTECTED — prefixos de path em que o upgrade NUNCA modifica nada. Se
+ * template difere, gera `<path>.template` lateral pro aluno revisar.
+ * Cobre `agent/**` (zona de extensão do aluno: instructions, tools,
+ * customer_metadata, etc.). ADR-001.
+ */
+const PROTECTED_PATH_PREFIXES: readonly string[] = ["agent/"];
+
+/**
+ * MERGED — arquivos com merge custom (append-only / dedup). Implementação
+ * do merge fica no executor. ADR-002 (.gitignore) + ADR-003 (.env.example).
+ */
+const MERGED_FILES = new Set<string>([
+  ".gitignore",
+  ".env.example",
+]);
+
+/** True se o path está em PROTECTED (prefix-match). Normaliza separador
+ *  pra Unix (CLI compara paths relativos sempre com `/`). */
+export function isProtected(relPath: string): boolean {
+  const normalized = relPath.split(path.sep).join("/");
+  return PROTECTED_PATH_PREFIXES.some((prefix) => normalized.startsWith(prefix));
+}
+
+/** True se o path é IMMUTABLE (exact match). */
+export function isImmutable(relPath: string): boolean {
+  return IMMUTABLE_FILES.has(relPath);
+}
+
+/** True se o path requer merge custom (exact match). */
+export function isMerged(relPath: string): boolean {
+  return MERGED_FILES.has(relPath);
+}
 
 export type FileStatus =
   | "new"
@@ -38,7 +81,9 @@ export type FileStatus =
   | "unchanged-from-base"
   | "modified-locally"
   | "changed-remote-no-base"
-  | "deleted-in-new";
+  | "deleted-in-new"
+  | "protected-skipped"
+  | "merged";
 
 export interface PlanEntry {
   relPath: string;
@@ -90,16 +135,71 @@ export async function planUpgrade(
 
   // --- Arquivos presentes no snapshot NOVO ---
   for (const relPath of newRelPaths) {
-    // Arquivos protegidos (agente.config.json) são ignorados pelo planner —
-    // jamais copiados/sobrescritos pelo upgrade. O config é atualizado
-    // programaticamente pelo executor via config-reader.
-    if (PROTECTED_FILES.has(relPath)) continue;
+    // IMMUTABLE — ignorado pelo planner; gerenciado por outro caminho
+    // (ex.: agente.config.json via config-reader).
+    if (isImmutable(relPath)) continue;
 
     const sourceNewPath = path.join(newFilesRoot, relPath);
     const destPath = path.join(opts.projectDir, relPath);
     const sourceOldPath = oldFilesRoot ? path.join(oldFilesRoot, relPath) : undefined;
-
     const destExists = await pathExists(destPath);
+
+    // PROTECTED (CLI v0.8.0+) — agent/* nunca é tocado. Se template difere
+    // OU arquivo não existe local, gera .template lateral. Se existir
+    // idêntico, marca como same-as-new (no-op silencioso).
+    if (isProtected(relPath)) {
+      if (!destExists) {
+        // Skeleton novo no template — aluno vê o .template e decide se quer.
+        entries.push({
+          relPath,
+          status: "protected-skipped",
+          sourceNewPath,
+          sourceOldPath,
+          destPath,
+        });
+        continue;
+      }
+      const [localHash, newHash] = await Promise.all([
+        hashFile(destPath),
+        hashFile(sourceNewPath),
+      ]);
+      if (localHash === newHash) {
+        // Aluno tem versão idêntica do skeleton — sem necessidade de .template.
+        entries.push({
+          relPath,
+          status: "same-as-new",
+          sourceNewPath,
+          sourceOldPath,
+          destPath,
+        });
+      } else {
+        // Aluno modificou OU template mudou — gera .template lateral.
+        entries.push({
+          relPath,
+          status: "protected-skipped",
+          sourceNewPath,
+          sourceOldPath,
+          destPath,
+        });
+      }
+      continue;
+    }
+
+    // MERGED (CLI v0.8.0+) — arquivos com merge custom (.gitignore, .env.example).
+    // Sempre marca como "merged"; executor faz a fusão. Sem hash check no
+    // planner (merge é idempotente, executor decide se há mudança real).
+    if (isMerged(relPath)) {
+      entries.push({
+        relPath,
+        status: "merged",
+        sourceNewPath,
+        sourceOldPath,
+        destPath,
+      });
+      continue;
+    }
+
+    // TRACKED (default) — fluxo 3-way merge tradicional.
     if (!destExists) {
       entries.push({
         relPath,

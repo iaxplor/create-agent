@@ -1,14 +1,18 @@
 // Executa o plano do upgrade-planner aplicando as decisões do usuário.
 //
-// Ordem das operações (importante pra atomicidade relativa):
-//   1. Snapshot do agente.config.json atual (pra rollback)
-//   2. Cópia de arquivos (new, unchanged-from-base, e os "overwrite")
-//   3. Deleção (os deleted-in-new com decisão "delete")
-//   4. Update do config (coreVersion ou modules[X].version)
+// Ordem das operações:
+//   1. Cópia de arquivos (new, unchanged-from-base, e os "overwrite")
+//   2. Geração de .template lateral (status "protected-skipped" — agent/*)
+//   3. Merge custom (status "merged" — .gitignore, .env.example)
+//   4. Deleção (os deleted-in-new com decisão "delete")
+//   5. Update do config (coreVersion ou modules[X].version)
 //
-// Se qualquer etapa falha, tenta restaurar o config.json e reporta qual
-// arquivo falhou. Arquivos já copiados NÃO são revertidos (git stash da
-// fase anterior é a proteção real).
+// Sem rollback automático (ADR-004). Se uma etapa falha:
+//   - O loop interrompe na exceção (re-throw com contexto)
+//   - Arquivos já copiados antes da falha permanecem
+//   - agente.config.json NÃO é atualizado (versão antiga preservada)
+//   - Recupere via `git stash pop` (se aceitou o stash automático no início
+//     do upgrade) ou `git checkout HEAD .` se o projeto está em git limpo
 
 import path from "node:path";
 
@@ -36,6 +40,11 @@ export interface UpgradeResult {
   deleted: string[];
   kept: string[];
   skipped: string[];
+  /** Arquivos PROTECTED (agent/*) cujo template difere do local — geramos
+   *  `<path>.template` lateral pro aluno revisar (CLI v0.8.0+). */
+  templatesGenerated: string[];
+  /** Arquivos com merge custom aplicado (.gitignore, .env.example). */
+  merged: string[];
   dryRun: boolean;
 }
 
@@ -63,6 +72,8 @@ export async function executeUpgrade(
     deleted: [],
     kept: [],
     skipped: [],
+    templatesGenerated: [],
+    merged: [],
     dryRun: opts.dryRun,
   };
 
@@ -92,6 +103,18 @@ export async function executeUpgrade(
       case "skip":
         result.skipped.push(entry.relPath);
         break;
+
+      case "generate-template":
+        if (!opts.dryRun) await doGenerateTemplate(entry);
+        result.templatesGenerated.push(entry.relPath);
+        break;
+
+      case "merge":
+        // Implementação real do merge fica em Bloco B (gitignore-merger).
+        // Por ora, comportamento conservador: marca como kept (não toca).
+        // TODO(v0.8.0 Bloco B): chamar mergeFile(entry, ...) aqui.
+        result.kept.push(entry.relPath);
+        break;
     }
   }
 
@@ -107,9 +130,16 @@ export async function executeUpgrade(
 //  Helpers
 // --------------------------------------------------------------------------- //
 
-type ResolvedAction = "copy-new" | "overwrite" | "delete" | "keep" | "skip";
+type ResolvedAction =
+  | "copy-new"
+  | "overwrite"
+  | "delete"
+  | "keep"
+  | "skip"
+  | "generate-template"
+  | "merge";
 
-function resolveAction(
+export function resolveAction(
   entry: PlanEntry,
   decisions: UpgradeDecisions,
 ): ResolvedAction {
@@ -135,6 +165,12 @@ function resolveAction(
       return decisions.deletedInNew.get(entry.relPath) === "delete"
         ? "delete"
         : "keep";
+
+    case "protected-skipped":
+      return "generate-template";
+
+    case "merged":
+      return "merge";
   }
 }
 
@@ -146,6 +182,19 @@ async function doCopy(entry: PlanEntry): Promise<void> {
   }
   await ensureDir(path.dirname(entry.destPath));
   await copy(entry.sourceNewPath, entry.destPath, { overwrite: true });
+}
+
+/** Gera `<destPath>.template` lateral pra arquivos PROTECTED (agent/*).
+ *  Aluno revisa e mescla manualmente; doctor V8 alerta sobre presença. */
+async function doGenerateTemplate(entry: PlanEntry): Promise<void> {
+  if (!entry.sourceNewPath) {
+    throw new Error(
+      `Entry ${entry.relPath} marcado como protected-skipped mas sem sourceNewPath`,
+    );
+  }
+  const templatePath = `${entry.destPath}.template`;
+  await ensureDir(path.dirname(templatePath));
+  await copy(entry.sourceNewPath, templatePath, { overwrite: true });
 }
 
 async function updateConfigVersion(
