@@ -29,6 +29,7 @@ import {
   findMissingDeps,
   readPyprojectDeps,
 } from "../utils/pyproject-deps-reader.js";
+import { checkEvolutionHealth } from "../utils/runtime-health-checker.js";
 import {
   detectEvolutionInApiMain,
   detectEvolutionInArqWorker,
@@ -59,6 +60,10 @@ export interface DoctorOptions {
   /** Modo CI gate: se true e há findings de level "error", seta
    *  process.exitCode = 1. Warnings continuam exit 0. */
   strict?: boolean;
+  /** v0.8.6+: ativa V13 — health check runtime contra infra do aluno
+   *  (Evolution API, etc.). Faz network call REAL → opt-in pra preservar
+   *  doctor offline-friendly por default. */
+  health?: boolean;
 }
 
 /** Severidade de cada finding. `ok` é positivo (✓ verde), `warn` é amarelo,
@@ -540,6 +545,89 @@ export async function checkModuleDepsInPyproject(
 }
 
 // --------------------------------------------------------------------------- //
+//  V13 — health check runtime opt-in (CLI v0.8.6+)
+// --------------------------------------------------------------------------- //
+
+/** Lê valores reais do `.env` (não `.env.example`). Retorna Map name→value.
+ *  Vazio se arquivo ausente. Usa parsing leve — não suporta multiline ou
+ *  variable substitution (suficiente pra envs do Evolution). */
+async function readEnvValues(projectDir: string): Promise<Map<string, string>> {
+  const filePath = path.join(projectDir, ".env");
+  const result = new Map<string, string>();
+  if (!(await pathExists(filePath))) return result;
+  const content = await readFile(filePath, "utf8");
+  for (const rawLine of content.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const eqIdx = line.indexOf("=");
+    if (eqIdx <= 0) continue;
+    const name = line.slice(0, eqIdx).trim();
+    let value = line.slice(eqIdx + 1).trim();
+    // Strip quotes simples se houver
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    if (name) result.set(name, value);
+  }
+  return result;
+}
+
+/** V13: roda health checks runtime contra infra do aluno. Só ativa com
+ *  --health. Pra cada módulo instalado que tem health checker definido
+ *  (Evolution por enquanto), faz network call e reporta. */
+export async function checkRuntimeHealth(
+  config: AgenteConfig,
+  projectDir: string,
+): Promise<Finding[]> {
+  const findings: Finding[] = [];
+  const modules = config.modules ?? {};
+  const envValues = await readEnvValues(projectDir);
+
+  // V13.1 — Evolution health
+  if ("evolution-api" in modules) {
+    const url = envValues.get("EVOLUTION_URL");
+    const apiKey = envValues.get("EVOLUTION_API_KEY");
+    const instance = envValues.get("EVOLUTION_INSTANCE_NAME");
+
+    if (!url || !apiKey || !instance) {
+      findings.push({
+        section: "runtime health: evolution-api",
+        level: "warn",
+        message:
+          "EVOLUTION_URL/API_KEY/INSTANCE_NAME ausente(s) ou vazio(s) no .env — " +
+          "health check pulado. Em prod via Dokploy as envs vivem no painel " +
+          "(rode --health localmente após `cp .env.example .env` + popular).",
+      });
+    } else {
+      const result = await checkEvolutionHealth({
+        url,
+        apiKey,
+        instanceName: instance,
+      });
+      findings.push({
+        section: "runtime health: evolution-api",
+        level: result.ok ? "ok" : result.status === "degraded" ? "warn" : "error",
+        message: result.message,
+      });
+    }
+  }
+
+  if (findings.length === 0) {
+    return [
+      {
+        section: "runtime health",
+        level: "ok",
+        message: "nenhum módulo com health check disponível instalado",
+      },
+    ];
+  }
+  return findings;
+}
+
+// --------------------------------------------------------------------------- //
 //  Orquestração + output
 // --------------------------------------------------------------------------- //
 
@@ -740,6 +828,26 @@ export async function doctorCommand(opts: DoctorOptions = {}): Promise<void> {
   // top-level. Caso real: gcal 0.4.1 + core 0.6.0+ → boot crashava com
   // ImportError (corrigido em gcal 0.4.2). Doctor V11 alerta preventivamente.
   findings.push(...await checkCircularImports(cwd));
+
+  // V13 (CLI v0.8.6+, OPT-IN) — health check runtime contra infra do aluno
+  // (Evolution API, etc.). Só ativa com --health pra preservar
+  // offline-friendly default. Faz network call REAL.
+  if (opts.health) {
+    const healthSpinner = createSpinner("Verificando health da infra (--health)...");
+    try {
+      const healthFindings = await checkRuntimeHealth(config, cwd);
+      healthSpinner.stop();
+      findings.push(...healthFindings);
+    } catch (err) {
+      healthSpinner.fail("Falha no health check");
+      const msg = err instanceof Error ? err.message : String(err);
+      findings.push({
+        section: "runtime health",
+        level: "warn",
+        message: `health check falhou: ${msg}`,
+      });
+    }
+  }
 
   renderFindings(findings);
 

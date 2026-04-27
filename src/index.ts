@@ -84,8 +84,16 @@ program
     "--strict",
     "exit code 1 se há findings de nível error (CI gate). Warnings continuam exit 0.",
   )
+  .option(
+    "--health",
+    "v0.8.6+: ativa V13 — health check runtime contra infra do aluno (Evolution API, etc.). Faz network call REAL — opt-in pra preservar offline-friendly default.",
+  )
   .action(
-    async (options: { templateSource?: string; strict?: boolean }) => {
+    async (options: {
+      templateSource?: string;
+      strict?: boolean;
+      health?: boolean;
+    }) => {
       await doctorCommand(options);
     },
   );

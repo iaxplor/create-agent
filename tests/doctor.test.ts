@@ -19,6 +19,7 @@ import {
   checkLegacyPatches,
   checkMinCoreVersion,
   checkRequiredEnvVars,
+  checkRuntimeHealth,
   checkTemplateFiles,
   renderFindings,
   reportVersionAvailability,
@@ -600,5 +601,119 @@ async def create_event():
     expect(findings).toHaveLength(1);
     expect(findings[0]?.level).toBe("ok");
     expect(findings[0]?.message).toMatch(/nenhum ciclo potencial/);
+  });
+});
+
+// =========================================================================== //
+//  V13 — checkRuntimeHealth (CLI v0.8.6+, opt-in via --health)
+// =========================================================================== //
+
+describe("checkRuntimeHealth (V13)", () => {
+  let projectDir: string;
+  const ORIGINAL_FETCH = globalThis.fetch;
+
+  beforeEach(async () => {
+    projectDir = await mkdtemp(join(tmpdir(), "iaxplor-doctor-v13-"));
+    globalThis.fetch = vi.fn();
+  });
+
+  afterEach(async () => {
+    await rm(projectDir, { recursive: true, force: true });
+    globalThis.fetch = ORIGINAL_FETCH;
+    vi.restoreAllMocks();
+  });
+
+  function makeConfigWithEvolution(): AgenteConfig {
+    return {
+      name: "test",
+      version: "0.1.0",
+      coreVersion: "0.7.3",
+      createdAt: new Date().toISOString(),
+      modules: {
+        "evolution-api": { version: "0.4.2", installedAt: new Date().toISOString() },
+      },
+      python: { packageManager: "uv", version: "3.11" },
+    };
+  }
+
+  it("projeto sem evolution-api → ok ('nenhum módulo com health check')", async () => {
+    const config: AgenteConfig = {
+      name: "test",
+      version: "0.1.0",
+      coreVersion: "0.7.3",
+      createdAt: new Date().toISOString(),
+      modules: {},
+      python: { packageManager: "uv", version: "3.11" },
+    };
+    const findings = await checkRuntimeHealth(config, projectDir);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.level).toBe("ok");
+    expect(findings[0]?.message).toMatch(/nenhum módulo/);
+  });
+
+  it("evolution-api instalado mas .env ausente → warn (envs ausentes)", async () => {
+    const findings = await checkRuntimeHealth(
+      makeConfigWithEvolution(),
+      projectDir,
+    );
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.level).toBe("warn");
+    expect(findings[0]?.message).toContain("EVOLUTION_URL");
+    expect(findings[0]?.message).toContain(".env");
+  });
+
+  it("envs presentes + Evolution responde state=open → ok", async () => {
+    await writeFile(
+      join(projectDir, ".env"),
+      "EVOLUTION_URL=https://evo.test\nEVOLUTION_API_KEY=fake\nEVOLUTION_INSTANCE_NAME=lab\n",
+    );
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ instance: { state: "open" } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const findings = await checkRuntimeHealth(
+      makeConfigWithEvolution(),
+      projectDir,
+    );
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.level).toBe("ok");
+    expect(findings[0]?.message).toContain("state=open");
+  });
+
+  it("envs presentes + Evolution responde state=connecting → warn (degraded)", async () => {
+    await writeFile(
+      join(projectDir, ".env"),
+      "EVOLUTION_URL=https://evo.test\nEVOLUTION_API_KEY=fake\nEVOLUTION_INSTANCE_NAME=lab\n",
+    );
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ instance: { state: "connecting" } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const findings = await checkRuntimeHealth(
+      makeConfigWithEvolution(),
+      projectDir,
+    );
+    expect(findings[0]?.level).toBe("warn");
+    expect(findings[0]?.message).toContain("connecting");
+  });
+
+  it("envs presentes + Evolution timeout → error (unreachable)", async () => {
+    await writeFile(
+      join(projectDir, ".env"),
+      "EVOLUTION_URL=https://evo.test\nEVOLUTION_API_KEY=fake\nEVOLUTION_INSTANCE_NAME=lab\n",
+    );
+    vi.mocked(globalThis.fetch).mockImplementationOnce(async () => {
+      throw new TypeError("fetch failed: ECONNREFUSED");
+    });
+    const findings = await checkRuntimeHealth(
+      makeConfigWithEvolution(),
+      projectDir,
+    );
+    expect(findings[0]?.level).toBe("error");
+    expect(findings[0]?.message).toContain("unreachable");
   });
 });

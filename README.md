@@ -96,6 +96,7 @@ Roda 4 verificações:
 | **V10** _(v0.8.2+)_ | Conflito `MY_CHANNELS` + `setup_channels()` | Migração incompleta — registro duplicado silencioso. Hint pra zerar `MY_CHANNELS=[]` |
 | **V11** _(v0.8.4+)_ | Ciclo potencial módulo ↔ core | Módulo auto-importado em `db/models/__init__.py` + `from core.X import` no top-level → bloqueio no boot. Hint pra lazy import |
 | **V12** _(v0.8.5+)_ | Deps de módulos × `pyproject.toml` | Deps declaradas em `manifest.dependencies` ausentes em `pyproject.toml` (silent break após `upgrade core --overwrite-modified`). Hint: `npx create-agent add <module>` (idempotente) |
+| **V13** _(v0.8.6+, opt-in `--health`)_ | Health runtime da infra | Network call REAL contra Evolution API (`GET /instance/connectionState`). Detecta state≠open, timeout, 401, 5xx. Lê envs de `.env`; se ausente, pula com warn |
 
 Output exemplo:
 
