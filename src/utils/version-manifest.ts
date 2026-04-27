@@ -164,16 +164,61 @@ export async function fetchModuleLatestVersion(
 
 /** Baixa snapshot completo de UMA versão do core (pra comparação de SHAs).
  *
- *  Tenta tags `v{version}` e `{version}`. Se nenhuma existe, retorna null —
- *  caller cai em modo degradado (sem comparação base).
+ *  Estratégia em 2 camadas (paridade com `fetchModuleSnapshot`, CLI v0.8.3+):
+ *  1) Consulta `modules-index.json` na chave `"core"` — caminho preferido.
+ *     Versões do core podem divergir das tags do repo (ex.: core 0.7.2
+ *     publicada na tag `v0.10.2`).
+ *  2) Fallback pra convenção `v{version}` / `{version}` — cobre projetos
+ *     legados, índice ausente, ou erro de manutenção. Warning visível
+ *     quando índice existe mas não tem a entrada.
+ *
+ *  Retorna null se nenhuma estratégia funciona — caller cai em modo
+ *  degradado (sem comparação base) OU bloqueia se for a NEW version.
+ *
+ *  ⚠️ Bug histórico: v0.8.2 e anteriores SÓ tentavam convenção (v{version}).
+ *  Quando core@0.7.x foi publicado nas tags v0.10.x, `upgrade core` blocava
+ *  com "Não consegui baixar core@0.7.2" mesmo com índice correto. v0.8.3+
+ *  corrige consultando o índice como `fetchModuleSnapshot` já fazia.
  */
 export async function fetchCoreSnapshot(
   version: string,
   opts: VersionSourceOptions = {},
 ): Promise<string | null> {
   const base = opts.templateSource ?? `github:${TEMPLATES_REPO}`;
-  const candidateRefs = [`v${version}`, version];
 
+  // 1) Caminho preferido: consultar o índice central pela chave "core".
+  const index = await fetchModulesIndex(opts);
+  const indexedTag = resolveTagFromIndex(index, "core", version);
+
+  if (indexedTag) {
+    const tmpDir = await mkdtemp(
+      path.join(os.tmpdir(), `iaxplor-core-snap-${indexedTag}-`),
+    );
+    try {
+      await downloadTemplate(`${base}/${CORE_TEMPLATE_PATH}#${indexedTag}`, {
+        dir: tmpDir,
+        force: true,
+      });
+      return tmpDir;
+    } catch {
+      await remove(tmpDir).catch(() => {
+        /* best effort */
+      });
+      // Cai pro fallback — tag listada no índice mas inexistente no repo.
+    }
+  }
+
+  // 2) Fallback: tags por convenção (comportamento pré-v0.8.3).
+  // Warning visível quando índice tinha entradas pra core mas não pra esta
+  // versão — sinal de manutenção esquecida (releaser esqueceu de adicionar).
+  if (index !== null && !indexedTag && index["core"]) {
+    console.warn(
+      `  ! Aviso: core v${version} não encontrado em modules-index.json. ` +
+        `Tentando convenção de tag direta. Se falhar, abra issue em ${ISSUES_URL}.`,
+    );
+  }
+
+  const candidateRefs = [`v${version}`, version];
   for (const ref of candidateRefs) {
     const tmpDir = await mkdtemp(
       path.join(os.tmpdir(), `iaxplor-core-snap-${ref}-`),
@@ -185,7 +230,6 @@ export async function fetchCoreSnapshot(
       });
       return tmpDir;
     } catch {
-      // Tag não existe — tenta próximo ref.
       await remove(tmpDir).catch(() => {
         /* best effort */
       });
