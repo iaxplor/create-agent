@@ -26,6 +26,10 @@ import {
 import { readAgenteConfig } from "../utils/config-reader.js";
 import { readEnvExampleVars } from "../utils/env-example-reader.js";
 import {
+  findMissingDeps,
+  readPyprojectDeps,
+} from "../utils/pyproject-deps-reader.js";
+import {
   detectEvolutionInApiMain,
   detectEvolutionInArqWorker,
   detectEvolutionInCoreConfig,
@@ -476,6 +480,66 @@ async function collectPyFiles(dir: string): Promise<string[]> {
 }
 
 // --------------------------------------------------------------------------- //
+//  V12 — deps de módulos × pyproject.toml (CLI v0.8.5+)
+// --------------------------------------------------------------------------- //
+
+/** Pra cada módulo instalado, baixa o manifest da versão instalada e
+ *  cruza `manifest.dependencies` com as deps declaradas em pyproject.toml.
+ *  Se manifest tem dep que pyproject não tem → warn (silent break: aluno
+ *  fez `upgrade core --overwrite-modified` e pyproject foi pristine).
+ *
+ *  Pra cada gap, hint específico: `uv add <dep>` ou `npx ... upgrade
+ *  <module>` pra re-injetar via add. */
+export async function checkModuleDepsInPyproject(
+  config: AgenteConfig,
+  manifests: Map<string, ModuleTemplateJson>,
+  projectDir: string,
+): Promise<Finding[]> {
+  const pyprojectPath = path.join(projectDir, "pyproject.toml");
+  if (!(await pathExists(pyprojectPath))) {
+    return [
+      {
+        section: "pyproject.toml × deps de módulos",
+        level: "warn",
+        message: "pyproject.toml ausente — não consigo validar deps",
+      },
+    ];
+  }
+  const pyprojectContent = await readFile(pyprojectPath, "utf8");
+  const pyprojectDeps = readPyprojectDeps(pyprojectContent);
+
+  const findings: Finding[] = [];
+  const moduleNames = Object.keys(config.modules ?? {});
+  for (const name of moduleNames) {
+    const manifest = manifests.get(name);
+    if (!manifest) continue; // V3/V4 já avisou falha de fetch
+    const missing = findMissingDeps(manifest.dependencies, pyprojectDeps);
+    if (missing.length === 0) continue;
+    findings.push({
+      section: `pyproject.toml × ${name}`,
+      level: "warn",
+      message:
+        `${missing.length} dep(s) declarada(s) em ${name}@${manifest.version} ` +
+        `mas AUSENTE(S) em pyproject.toml: ${missing.join(", ")}. ` +
+        `Provável causa: 'upgrade core --overwrite-modified' sobrescreveu pyproject. ` +
+        `Re-injete via 'npx create-agent add ${name}' (idempotente — re-aplica deps) ` +
+        `ou manualmente via 'uv add ...'.`,
+    });
+  }
+
+  if (findings.length === 0 && moduleNames.length > 0) {
+    return [
+      {
+        section: "pyproject.toml × deps de módulos",
+        level: "ok",
+        message: `pyproject.toml tem todas as deps de ${moduleNames.length} módulo(s) instalado(s)`,
+      },
+    ];
+  }
+  return findings;
+}
+
+// --------------------------------------------------------------------------- //
 //  Orquestração + output
 // --------------------------------------------------------------------------- //
 
@@ -602,7 +666,8 @@ export async function doctorCommand(opts: DoctorOptions = {}): Promise<void> {
       });
     }
 
-    // Módulos
+    // Módulos — coleta manifests num Map pra reusar em V12 (deps × pyproject)
+    const moduleManifests = new Map<string, ModuleTemplateJson>();
     for (const [name, mod] of Object.entries(config.modules ?? {})) {
       const snap = await fetchModuleSnapshot(name, mod.version, opts);
       if (!snap) {
@@ -611,7 +676,7 @@ export async function doctorCommand(opts: DoctorOptions = {}): Promise<void> {
           level: "warn",
           message:
             "manifest da versão instalada não encontrado no repo " +
-            "(tag deletada?). Pulando V3/V4 deste módulo.",
+            "(tag deletada?). Pulando V3/V4/V12 deste módulo.",
         });
         continue;
       }
@@ -628,6 +693,7 @@ export async function doctorCommand(opts: DoctorOptions = {}): Promise<void> {
         });
         continue;
       }
+      moduleManifests.set(name, manifest);
       // V3
       findings.push(
         ...checkMinCoreVersion(name, mod.version, manifest, config.coreVersion),
@@ -641,6 +707,13 @@ export async function doctorCommand(opts: DoctorOptions = {}): Promise<void> {
         ),
       );
     }
+
+    // V12 (CLI v0.8.5+) — deps de módulos × pyproject.toml. Detecta caso
+    // do projeto lab onde `upgrade core --overwrite-modified` apagou as
+    // deps que `add` havia injetado (ex.: google-auth, google-api-python-client).
+    findings.push(
+      ...await checkModuleDepsInPyproject(config, moduleManifests, cwd),
+    );
   } finally {
     for (const dir of snapshotsToCleanup) {
       await cleanupSnapshot(dir);

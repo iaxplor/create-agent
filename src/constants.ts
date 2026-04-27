@@ -2,7 +2,7 @@
 // validação de nome ficam aqui, não espalhadas pelo código.
 
 /** Versão do próprio CLI, exibida no banner e no `--version`. */
-export const CLI_VERSION = "0.8.4";
+export const CLI_VERSION = "0.8.5";
 
 /** Repositório dos templates (sem `github:` na frente — o giget adiciona). */
 export const TEMPLATES_REPO = "iaxplor/agent-templates";

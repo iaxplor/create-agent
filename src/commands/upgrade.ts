@@ -323,6 +323,19 @@ async function upgradeCore(
       reportEnvExampleChanges(envChanges, ".env.example");
     }
 
+    // Fase 6C — Re-injeta deps de módulos no pyproject (CLI v0.8.5+)
+    // Quando o aluno passa --overwrite-modified (ou --yes legacy), o
+    // pyproject.toml é sobrescrito pelo template puro do core — perdendo
+    // as deps que módulos como google-calendar adicionaram via `add`.
+    // Caso real do projeto lab: gcal precisa de google-api-python-client +
+    // google-auth + google-auth-oauthlib; após upgrade core --yes, deps
+    // somem; container rebuilda sem elas; ModuleNotFoundError no boot.
+    // Fix: re-injeta cada manifest.dependencies dos módulos instalados.
+    // Idempotente — updatePyproject não duplica deps já presentes.
+    if (!opts.dryRun) {
+      await reinjectModuleDepsAfterCoreUpgrade(cwd, config, opts);
+    }
+
     // Fase 7 — Mensagem pós-upgrade
     await printPostUpgradeMessage({
       cwd,
@@ -894,6 +907,60 @@ async function tryParseModuleManifest(
     return await parseModuleManifest(snapshotDir);
   } catch {
     return null;
+  }
+}
+
+/** Re-injeta deps de cada módulo instalado no pyproject.toml após upgrade
+ *  do core (CLI v0.8.5+). Resolve bug onde `--overwrite-modified` (ou
+ *  `--yes` legacy) sobrescreve pyproject com template puro do core,
+ *  perdendo deps que módulos como google-calendar adicionaram via `add`.
+ *
+ *  Idempotente — `updatePyproject` não duplica deps já presentes. Falha
+ *  silenciosa por módulo (loga warn) — não aborta upgrade se 1 manifest
+ *  é inacessível. */
+async function reinjectModuleDepsAfterCoreUpgrade(
+  cwd: string,
+  config: import("../types.js").AgenteConfig,
+  opts: UpgradeOptions,
+): Promise<void> {
+  const moduleEntries = Object.entries(config.modules ?? {});
+  if (moduleEntries.length === 0) return;
+
+  console.log();
+  console.log(
+    chalk.gray("Re-injetando deps de módulos no pyproject.toml..."),
+  );
+
+  for (const [name, mod] of moduleEntries) {
+    const snapshotDir = await fetchModuleSnapshot(name, mod.version, opts);
+    if (!snapshotDir) {
+      log.warn(
+        `pyproject: snapshot do módulo ${name}@${mod.version} não encontrado — deps não re-injetadas.`,
+      );
+      continue;
+    }
+    try {
+      const manifest = await tryParseModuleManifest(snapshotDir);
+      if (!manifest || manifest.dependencies.length === 0) continue;
+
+      const changes = await updatePyproject({
+        projectDir: cwd,
+        dependencies: manifest.dependencies,
+        dryRun: false,
+      });
+      if (changes.applied && changes.added.length > 0) {
+        log.muted(
+          `pyproject: ${name} → ${changes.added.length} dep(s) re-injetada(s): ${changes.added.join(", ")}`,
+        );
+      }
+      for (const conflict of changes.versionConflicts) {
+        log.warn(
+          `pyproject: ${conflict.name} conflito de versão (existing=${conflict.existing}, módulo=${conflict.requested}). Verifique manualmente.`,
+        );
+      }
+    } finally {
+      await cleanupSnapshot(snapshotDir);
+    }
   }
 }
 

@@ -95,6 +95,7 @@ Roda 4 verificações:
 | **V9** _(v0.8.1+)_ | Patches legados em `core/api/workers` | Resíduos de módulos pre-extension-layer (ex.: evolution-api ≤ 0.3.x). Hint pra MIGRATION_v0.4.0.md |
 | **V10** _(v0.8.2+)_ | Conflito `MY_CHANNELS` + `setup_channels()` | Migração incompleta — registro duplicado silencioso. Hint pra zerar `MY_CHANNELS=[]` |
 | **V11** _(v0.8.4+)_ | Ciclo potencial módulo ↔ core | Módulo auto-importado em `db/models/__init__.py` + `from core.X import` no top-level → bloqueio no boot. Hint pra lazy import |
+| **V12** _(v0.8.5+)_ | Deps de módulos × `pyproject.toml` | Deps declaradas em `manifest.dependencies` ausentes em `pyproject.toml` (silent break após `upgrade core --overwrite-modified`). Hint: `npx create-agent add <module>` (idempotente) |
 
 Output exemplo:
 
