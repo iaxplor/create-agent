@@ -19,6 +19,10 @@ import fsExtra from "fs-extra";
 
 import { printBanner } from "../utils/banner.js";
 import { detectChannelsConflict } from "../utils/channels-conflict-detector.js";
+import {
+  extractAutoImportedModules,
+  findTopLevelCoreImports,
+} from "../utils/circular-import-detector.js";
 import { readAgenteConfig } from "../utils/config-reader.js";
 import { readEnvExampleVars } from "../utils/env-example-reader.js";
 import {
@@ -382,6 +386,96 @@ export async function checkChannelsConflict(
 }
 
 // --------------------------------------------------------------------------- //
+//  V11 — ciclo potencial entre módulo e core (CLI v0.8.4+)
+// --------------------------------------------------------------------------- //
+
+/** Detecta padrão de import circular potencial entre módulo IAxplor e
+ *  `core.*`. Padrão problemático: `db/models/__init__.py` auto-importa
+ *  o módulo (ex.: `from integrations.google_calendar.models import ...`)
+ *  E o módulo importa `from core.X import ...` no top-level. Os 2 juntos
+ *  fecham ciclo (caso real: gcal 0.4.1 → 0.4.2 hotfix em out/2025).
+ *
+ *  Heurística:
+ *    1. Lê `db/models/__init__.py`. Se ausente, sem-op.
+ *    2. Extrai módulos auto-importados (`integrations/<X>`, `channels/<X>`).
+ *    3. Pra cada módulo, walk recursivo dos `.py` do dir do módulo.
+ *    4. Se algum tem `from core.X import` no TOP-LEVEL → warn ciclo. */
+export async function checkCircularImports(
+  projectDir: string,
+): Promise<Finding[]> {
+  const dbModelsInit = path.join(projectDir, "db", "models", "__init__.py");
+  if (!(await pathExists(dbModelsInit))) {
+    return [
+      {
+        section: "import circular (módulo ↔ core)",
+        level: "ok",
+        message: "sem db/models/__init__.py (sem auto-imports de módulos)",
+      },
+    ];
+  }
+
+  const dbModelsContent = await readFile(dbModelsInit, "utf8");
+  const autoImported = extractAutoImportedModules(dbModelsContent);
+  if (autoImported.length === 0) {
+    return [
+      {
+        section: "import circular (módulo ↔ core)",
+        level: "ok",
+        message: "db/models/__init__.py não auto-importa módulos opcionais",
+      },
+    ];
+  }
+
+  const findings: Finding[] = [];
+  for (const moduleRel of autoImported) {
+    const moduleDir = path.join(projectDir, moduleRel);
+    if (!(await pathExists(moduleDir))) continue; // módulo não instalado
+    const pyFiles = await collectPyFiles(moduleDir);
+    for (const filePath of pyFiles) {
+      const content = await readFile(filePath, "utf8");
+      const coreImports = findTopLevelCoreImports(content);
+      if (coreImports.length === 0) continue;
+      const relPath = path.relative(projectDir, filePath);
+      findings.push({
+        section: "import circular (módulo ↔ core)",
+        level: "warn",
+        message:
+          `${relPath}: top-level 'from core.${coreImports.join("/")} import ...' ` +
+          `+ db/models/__init__.py auto-importa ${moduleRel} = CICLO POTENCIAL. ` +
+          `Mover imports de core.* pra DENTRO das funções que usam (lazy import).`,
+      });
+    }
+  }
+
+  if (findings.length === 0) {
+    return [
+      {
+        section: "import circular (módulo ↔ core)",
+        level: "ok",
+        message: `nenhum ciclo potencial em ${autoImported.length} módulo(s) auto-importado(s)`,
+      },
+    ];
+  }
+  return findings;
+}
+
+/** Walk recursivo de `.py` num diretório. Skip __pycache__ e similares. */
+async function collectPyFiles(dir: string): Promise<string[]> {
+  const acc: string[] = [];
+  const entries = await readdir(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const abs = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (entry.name.startsWith("__")) continue;
+      acc.push(...await collectPyFiles(abs));
+    } else if (entry.isFile() && entry.name.endsWith(".py")) {
+      acc.push(abs);
+    }
+  }
+  return acc;
+}
+
+// --------------------------------------------------------------------------- //
 //  Orquestração + output
 // --------------------------------------------------------------------------- //
 
@@ -567,6 +661,12 @@ export async function doctorCommand(opts: DoctorOptions = {}): Promise<void> {
   // pra core 0.7.0+/evolution-api 0.4.0, aluno pode esquecer de remover
   // MY_CHANNELS = [...] antigo — registro duplicado silencioso.
   findings.push(...await checkChannelsConflict(cwd));
+
+  // V11 (CLI v0.8.4+) — detecta padrão de import circular potencial entre
+  // módulo IAxplor (auto-importado em db/models/__init__.py) e core.* no
+  // top-level. Caso real: gcal 0.4.1 + core 0.6.0+ → boot crashava com
+  // ImportError (corrigido em gcal 0.4.2). Doctor V11 alerta preventivamente.
+  findings.push(...await checkCircularImports(cwd));
 
   renderFindings(findings);
 

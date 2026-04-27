@@ -15,6 +15,7 @@ import { afterEach, beforeEach } from "vitest";
 import {
   _internals,
   checkChannelsConflict,
+  checkCircularImports,
   checkLegacyPatches,
   checkMinCoreVersion,
   checkRequiredEnvVars,
@@ -508,5 +509,96 @@ MY_CHANNELS = [EvolutionChannel(...)]
     expect(findings[0]?.level).toBe("warn");
     expect(findings[0]?.message).toContain("registro duplicado");
     expect(findings[0]?.message).toContain("zerar MY_CHANNELS=[]");
+  });
+});
+
+// =========================================================================== //
+//  V11 — checkCircularImports (CLI v0.8.4+)
+// =========================================================================== //
+
+describe("checkCircularImports (V11)", () => {
+  let projectDir: string;
+
+  beforeEach(async () => {
+    projectDir = await mkdtemp(join(tmpdir(), "iaxplor-doctor-v11-"));
+  });
+
+  afterEach(async () => {
+    await rm(projectDir, { recursive: true, force: true });
+  });
+
+  it("sem db/models/__init__.py → ok", async () => {
+    const findings = await checkCircularImports(projectDir);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.level).toBe("ok");
+    expect(findings[0]?.message).toMatch(/sem db\/models/);
+  });
+
+  it("db/models/__init__.py sem auto-imports de módulos → ok", async () => {
+    await mkdir(join(projectDir, "db/models"), { recursive: true });
+    await writeFile(
+      join(projectDir, "db/models/__init__.py"),
+      "from db.models.customer import Customer\nfrom db.models.outbound_message import OutboundMessage\n",
+    );
+    const findings = await checkCircularImports(projectDir);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.level).toBe("ok");
+    expect(findings[0]?.message).toMatch(/não auto-importa/);
+  });
+
+  it("auto-import gcal + service.py com top-level core.outbound = WARN ciclo", async () => {
+    // Reproduz o cenário gcal 0.4.1 (pre-hotfix v0.4.2)
+    await mkdir(join(projectDir, "db/models"), { recursive: true });
+    await writeFile(
+      join(projectDir, "db/models/__init__.py"),
+      `from db.models.customer import Customer
+
+try:
+    from integrations.google_calendar.models import CalendarEvent
+except ModuleNotFoundError:
+    pass
+`,
+    );
+    await mkdir(join(projectDir, "integrations/google_calendar"), {
+      recursive: true,
+    });
+    await writeFile(
+      join(projectDir, "integrations/google_calendar/service.py"),
+      `from core.logger import logger
+from core.outbound import cancel_scheduled, send_to_customer
+
+async def create_event(): ...
+`,
+    );
+    const findings = await checkCircularImports(projectDir);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.level).toBe("warn");
+    expect(findings[0]?.message).toContain("integrations/google_calendar/service.py");
+    expect(findings[0]?.message).toContain("CICLO POTENCIAL");
+    expect(findings[0]?.message).toContain("lazy import");
+  });
+
+  it("auto-import gcal + service.py com lazy imports SOMENTE = ok (cenário pós-hotfix v0.4.2)", async () => {
+    await mkdir(join(projectDir, "db/models"), { recursive: true });
+    await writeFile(
+      join(projectDir, "db/models/__init__.py"),
+      "try:\n    from integrations.google_calendar.models import CalendarEvent\nexcept ModuleNotFoundError:\n    pass\n",
+    );
+    await mkdir(join(projectDir, "integrations/google_calendar"), {
+      recursive: true,
+    });
+    await writeFile(
+      join(projectDir, "integrations/google_calendar/service.py"),
+      `from core.logger import logger
+
+async def create_event():
+    from core.outbound import send_to_customer
+    pass
+`,
+    );
+    const findings = await checkCircularImports(projectDir);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.level).toBe("ok");
+    expect(findings[0]?.message).toMatch(/nenhum ciclo potencial/);
   });
 });
