@@ -4,6 +4,24 @@ CLI da IAxplor pra criar projetos de agente IA e gerenciar módulos opcionais. H
 
 ---
 
+## v0.9.1 — Hotfix: banner do CLI mostra versão correta
+
+Bug visual identificado após release do v0.9.0: o banner (`▸ IAxplor · create-agent vX.Y.Z`) e a saída de `--version` continuavam exibindo `v0.8.6` mesmo na versão publicada nova. Causa: `src/constants.ts:CLI_VERSION` era hardcoded como string literal e ninguém atualizava ao bumpar o `package.json`.
+
+### Corrigido
+
+- **`src/constants.ts`** — `CLI_VERSION` agora é lido em runtime do `package.json` via `fs.readFileSync(import.meta.url + "../package.json")`. Resolve tanto em dev (`src/`) quanto em prod (`dist/`) e elimina por construção a possibilidade de drift entre a versão publicada no npm e a string mostrada pro usuário.
+
+### Por que não usei `tsup --define` ou `import package.json with { type: "json" }`
+
+A leitura runtime via `fs` adiciona ~1ms na inicialização do CLI (negligível) e dispensa configuração de build ou ESM import assertions. Trade-off explícito: simplicidade > otimização irrelevante pra um CLI cujo cold-start já é dominado pelo Node startup.
+
+### Sem mudanças funcionais
+
+Toda a lógica de comandos (`create`, `add`, `upgrade`, `doctor`, `list`) e o doctor V14 (drift detector) seguem idênticos. Esta release **só corrige o display da versão** — pode atualizar sem revalidar nada.
+
+---
+
 ## v0.9.0 — Doctor V14: drift de versão de deps críticas (Fase 3 do versionamento determinístico)
 
 Continua o trabalho do agent-templates v0.11.9 (upper bounds — Fase 1) e v0.12.0 (lockfile distribuído + Dockerfile `--frozen` — Fase 2). Esta release entrega a Fase 3: validator no `doctor` que detecta se aluno tem `pyproject.toml` ou `uv.lock` divergente das versões testadas pelo CI da IAxplor.
