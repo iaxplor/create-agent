@@ -36,6 +36,7 @@ import {
   detectEvolutionInCoreConfig,
   type LegacyPatchFinding,
 } from "../utils/legacy-patches-detector.js";
+import { detectVersionDrift } from "../utils/version-drift-detector.js";
 import { createSpinner, log } from "../utils/logger.js";
 import { parseModuleManifest } from "../utils/template-manifest.js";
 import {
@@ -545,6 +546,82 @@ export async function checkModuleDepsInPyproject(
 }
 
 // --------------------------------------------------------------------------- //
+//  V14 — drift de versão de deps críticas vs template (CLI v0.9.0+)
+// --------------------------------------------------------------------------- //
+
+/** Lê o `pyproject.toml` do snapshot do core (testado pelo CI da IAxplor)
+ *  pra comparar com o `pyproject.toml` local + `uv.lock` local. Detecta:
+ *
+ *    1. Range drift — pyproject local difere do range testado (ex.: aluno
+ *       em projeto antigo com `agno>=2.5.17` vs template novo com
+ *       `agno>=2.6.4,<2.7`).
+ *    2. Lock drift — versão exata do uv.lock está fora do upper bound
+ *       testado (ex.: aluno fez `uv lock --upgrade-package agno` e pegou
+ *       2.7.0, mas template só validou até 2.6.x).
+ *
+ *  Warn-only, não bloqueia exit code. Aluno avançado pode escolher usar
+ *  versão mais nova; o V14 só sinaliza que é responsabilidade dele. */
+export async function checkVersionDrift(
+  coreSnapshotDir: string | null,
+  projectDir: string,
+): Promise<Finding[]> {
+  if (!coreSnapshotDir) {
+    return []; // V2/V3 já avisou falha de fetch — silencioso aqui
+  }
+
+  const localPyprojectPath = path.join(projectDir, "pyproject.toml");
+  if (!(await pathExists(localPyprojectPath))) {
+    return [
+      {
+        section: "deps × template (V14)",
+        level: "warn",
+        message: "pyproject.toml local ausente — não consigo validar drift",
+      },
+    ];
+  }
+
+  const expectedPyprojectPath = path.join(
+    coreSnapshotDir,
+    "files",
+    "pyproject.toml",
+  );
+  if (!(await pathExists(expectedPyprojectPath))) {
+    return []; // snapshot do core não tem pyproject (versão antiga) — pula
+  }
+
+  const localPyproject = await readFile(localPyprojectPath, "utf8");
+  const expectedPyproject = await readFile(expectedPyprojectPath, "utf8");
+
+  // uv.lock é opcional (aluno em projeto pré-v0.12.0 pode não ter)
+  const localLockPath = path.join(projectDir, "uv.lock");
+  const localLock = (await pathExists(localLockPath))
+    ? await readFile(localLockPath, "utf8")
+    : null;
+
+  const drifts = detectVersionDrift({
+    localPyproject,
+    localLock,
+    expectedPyproject,
+  });
+
+  if (drifts.length === 0) {
+    return [
+      {
+        section: "deps × template (V14)",
+        level: "ok",
+        message: "ranges + lock alinhados com versões testadas pelo template",
+      },
+    ];
+  }
+
+  return drifts.map((d) => ({
+    section: `deps × template (V14) — ${d.pkg}`,
+    level: "warn" as const,
+    message: d.message,
+  }));
+}
+
+// --------------------------------------------------------------------------- //
 //  V13 — health check runtime opt-in (CLI v0.8.6+)
 // --------------------------------------------------------------------------- //
 
@@ -797,11 +874,16 @@ export async function doctorCommand(opts: DoctorOptions = {}): Promise<void> {
     }
 
     // V12 (CLI v0.8.5+) — deps de módulos × pyproject.toml. Detecta caso
-    // do projeto lab onde `upgrade core --overwrite-modified` apagou as
+    // de produção onde `upgrade core --overwrite-modified` apagou as
     // deps que `add` havia injetado (ex.: google-auth, google-api-python-client).
     findings.push(
       ...await checkModuleDepsInPyproject(config, moduleManifests, cwd),
     );
+
+    // V14 (CLI v0.9.0+) — drift de versão de deps críticas (Agno) entre
+    // pyproject/uv.lock local e o snapshot do template testado pelo CI.
+    // Reusa o coreSnap já baixado no V3/V4. Warn-only.
+    findings.push(...await checkVersionDrift(coreSnap, cwd));
   } finally {
     for (const dir of snapshotsToCleanup) {
       await cleanupSnapshot(dir);
