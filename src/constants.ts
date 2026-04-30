@@ -1,8 +1,26 @@
 // Fonte única de strings "estáticas" do CLI — mudanças de repo ou regra de
 // validação de nome ficam aqui, não espalhadas pelo código.
 
-/** Versão do próprio CLI, exibida no banner e no `--version`. */
-export const CLI_VERSION = "0.8.6";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+/**
+ * Versão do próprio CLI, exibida no banner e no `--version`.
+ *
+ * Lemos do `package.json` em runtime pra evitar drift entre a versão
+ * publicada (que o npm valida via `package.json:version`) e a string
+ * mostrada pro usuário. Antes, era hardcoded e ficou em `0.8.6` mesmo
+ * após o bump pra v0.9.0 — bug visual que confundia quem rodava
+ * `--version` ou olhava o banner.
+ *
+ * Resolução do path: o CLI é distribuído como `dist/index.js`, então
+ * `dirname(fileURLToPath(import.meta.url)) + ../package.json` aponta pra
+ * raiz do pacote tanto em dev (`src/`) quanto em prod (`dist/`).
+ */
+const _pkgPath = join(dirname(fileURLToPath(import.meta.url)), "..", "package.json");
+const _pkg = JSON.parse(readFileSync(_pkgPath, "utf8")) as { version: string };
+export const CLI_VERSION: string = _pkg.version;
 
 /** Repositório dos templates (sem `github:` na frente — o giget adiciona). */
 export const TEMPLATES_REPO = "iaxplor/agent-templates";
