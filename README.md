@@ -1,6 +1,6 @@
 # `@iaxplor/create-agent`
 
-CLI para criar projetos Python de agente de IA (FastAPI + Postgres + Redis + Agno) a partir do template `core` em [`iaxplor/agent-templates`](https://github.com/iaxplor/agent-templates). Otimizado para agentes de atendimento via WhatsApp com deploy em Docker Compose.
+CLI para criar projetos Python de agente de IA (FastAPI + Postgres + Redis + Agno) a partir do template `core` em [`iaxplor/agent-core`](https://github.com/iaxplor/agent-core). Otimizado para agentes de atendimento via WhatsApp com deploy em Docker Compose.
 
 ## Comandos
 
@@ -36,7 +36,7 @@ npx @iaxplor/create-agent add evolution-api
 O comando:
 
 1. Verifica que o diretório atual é um projeto IAxplor (existência de `agente.config.json`)
-2. Baixa `modules/<module>/` do repo `iaxplor/agent-templates`
+2. Baixa `modules/<module>/` do repo `iaxplor/agent-core`
 3. Valida compatibilidade de versão (módulo declara `min_core_version`)
 4. Detecta conflitos (arquivos que já existem no projeto) e pede confirmação
 5. Copia os arquivos conforme o mapping declarado no `template.json` do módulo
@@ -47,7 +47,7 @@ O comando:
 
 - `--dry-run` — mostra o plano sem copiar nem modificar nada
 - `--yes` — aceita automaticamente sobrescrever arquivos em conflito (útil em CI)
-- `--template-source <url>` — override do repo base (default: `github:iaxplor/agent-templates`)
+- `--template-source <url>` — override do repo base (default: `github:iaxplor/agent-core`)
 
 **Automações aplicadas automaticamente** (v0.3.0+):
 
@@ -215,11 +215,11 @@ Módulos novos devem seguir estas convenções:
 
 Templates antigos sem esses campos continuam funcionando — degradação graciosa.
 
-Veja [`iaxplor/agent-templates/modules/evolution-api/`](https://github.com/iaxplor/agent-templates/tree/main/modules/evolution-api) como referência.
+Veja [`iaxplor/agent-core/modules/evolution-api/`](https://github.com/iaxplor/agent-core/tree/main/modules/evolution-api) como referência.
 
 ### Resolução de versões em upgrades — `modules-index.json`
 
-Desde v0.4.1, o CLI resolve a tag do repo correspondente a uma versão de módulo via [`modules-index.json`](https://github.com/iaxplor/agent-templates/blob/main/modules-index.json) na raiz do branch `main` do `agent-templates`. Formato:
+Desde v0.4.1, o CLI resolve a tag do repo correspondente a uma versão de módulo via [`modules-index.json`](https://github.com/iaxplor/agent-core/blob/main/modules-index.json) na raiz do branch `main` do `agent-core`. Formato:
 
 ```json
 {
