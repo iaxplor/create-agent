@@ -1,4 +1,4 @@
-// Orquestra o download do template `core/` do repositório `agent-templates`
+// Orquestra o download do template `core/` do repositório `agent-core`
 // e a cópia dos arquivos pro diretório do projeto final.
 //
 // Fluxo:
@@ -97,7 +97,7 @@ export async function fetchCoreTemplate(targetDir: string): Promise<TemplateJson
  *  validação de compatibilidade e detecção de conflitos.
  *
  *  `templateSource` permite sobrescrever o repo base (flag `--template-source`
- *  do comando `add`). Default: `github:iaxplor/agent-templates`.
+ *  do comando `add`). Default: `github:iaxplor/agent-core`.
  *
  *  Retorna o path absoluto do diretório temp. Caller DEVE chamar
  *  `cleanupModuleTemp(path)` quando terminar.

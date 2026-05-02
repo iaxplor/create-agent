@@ -9,7 +9,7 @@
 //   --yes           aceita sobrescritas/remoções sem prompt (perigoso)
 //   --dry-run       só mostra plano, não aplica
 //   --no-stash      pula prompt de git stash
-//   --template-source <url>   override do repo base (default: iaxplor/agent-templates)
+//   --template-source <url>   override do repo base (default: iaxplor/agent-core)
 //
 // Fluxo de 7 fases documentado em CHANGELOG.md. Este arquivo orquestra.
 
@@ -247,7 +247,7 @@ async function upgradeCore(
     spinner.fail("Falha ao baixar versão nova do core");
     throw new UserError(
       `Não consegui baixar core@${availableVersion}. Verifique que a tag ` +
-        `v${availableVersion} existe em iaxplor/agent-templates.`,
+        `v${availableVersion} existe em iaxplor/agent-core.`,
     );
   }
   spinner.succeed(

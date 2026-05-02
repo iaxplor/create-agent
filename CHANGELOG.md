@@ -4,6 +4,34 @@ CLI da IAxplor pra criar projetos de agente IA e gerenciar módulos opcionais. H
 
 ---
 
+## v0.10.0 — Migração `iaxplor/agent-templates` → `iaxplor/agent-core`
+
+Templates passaram a viver no novo repositório `iaxplor/agent-core`. Atualização **transparente pro aluno** — basta usar o CLI v0.10.0+.
+
+### Mudanças
+
+- **`src/constants.ts`**: `TEMPLATES_REPO = "iaxplor/agent-core"` (era `iaxplor/agent-templates`)
+- **`src/index.ts`**, **`src/commands/add.ts`**, **`src/commands/upgrade.ts`**, **`src/utils/template-fetcher.ts`**, **`src/utils/version-manifest.ts`**: refs internas atualizadas
+- **`README.md`**: docs apontam pro novo repo
+
+### Migração
+
+Aluno que tiver projeto criado com CLI ≤ 0.9.x continua funcionando localmente — o CLI só consulta o repo de templates em `add` ou `upgrade`. Pra novos comandos `add`/`upgrade`, atualize o CLI:
+
+```bash
+# global cache do npx é invalidado automaticamente em uso casual:
+npx -y @iaxplor/create-agent@latest <comando>
+
+# ou install local:
+npm install -g @iaxplor/create-agent@latest
+```
+
+### Não-breaking pro aluno
+
+API de comandos (`create`, `add`, `upgrade`, `doctor`, `list`) inalterada. Banner + flags + validações idênticos.
+
+---
+
 ## v0.9.1 — Hotfix: banner do CLI mostra versão correta
 
 Bug visual identificado após release do v0.9.0: o banner (`▸ IAxplor · create-agent vX.Y.Z`) e a saída de `--version` continuavam exibindo `v0.8.6` mesmo na versão publicada nova. Causa: `src/constants.ts:CLI_VERSION` era hardcoded como string literal e ninguém atualizava ao bumpar o `package.json`.

@@ -38,7 +38,7 @@ export interface VersionSourceOptions {
 
 /**
  * Schema do `modules-index.json` mantido na raiz do branch main do repo
- * `agent-templates`. Mapeia explicitamente `{moduleName, version}` → tag
+ * `agent-core`. Mapeia explicitamente `{moduleName, version}` → tag
  * do repo onde aquela versão do módulo foi publicada.
  *
  * Existe porque a numeração das versões dos módulos NÃO casa com as tags

@@ -39,7 +39,7 @@ program
   )
   .option(
     "--template-source <url>",
-    "override do repo base (default: github:iaxplor/agent-templates)",
+    "override do repo base (default: github:iaxplor/agent-core)",
   )
   .option("--dry-run", "mostra o plano sem copiar nem modificar nada")
   .option("--yes", "aceita automaticamente sobrescrever arquivos em conflito")
@@ -64,7 +64,7 @@ program
   )
   .option(
     "--template-source <url>",
-    "override do repo base (default: github:iaxplor/agent-templates)",
+    "override do repo base (default: github:iaxplor/agent-core)",
   )
   .action(async (options: { templateSource?: string }) => {
     await listCommand(options);
@@ -78,7 +78,7 @@ program
   )
   .option(
     "--template-source <url>",
-    "override do repo base (default: github:iaxplor/agent-templates)",
+    "override do repo base (default: github:iaxplor/agent-core)",
   )
   .option(
     "--strict",
@@ -106,7 +106,7 @@ program
   )
   .option(
     "--template-source <url>",
-    "override do repo base (default: github:iaxplor/agent-templates)",
+    "override do repo base (default: github:iaxplor/agent-core)",
   )
   .option("--dry-run", "mostra o plano sem aplicar mudanças")
   .option(

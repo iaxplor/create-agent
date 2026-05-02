@@ -35,7 +35,7 @@ import { parseModuleManifest } from "../utils/template-manifest.js";
 import { isCompatible } from "../utils/version-check.js";
 
 export interface AddCommandOptions {
-  /** Opcional: override do repo base (default: github:iaxplor/agent-templates). */
+  /** Opcional: override do repo base (default: github:iaxplor/agent-core). */
   templateSource?: string;
   /** Se true, mostra o plano sem copiar nada. */
   dryRun?: boolean;

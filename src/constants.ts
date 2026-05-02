@@ -23,7 +23,7 @@ const _pkg = JSON.parse(readFileSync(_pkgPath, "utf8")) as { version: string };
 export const CLI_VERSION: string = _pkg.version;
 
 /** Repositório dos templates (sem `github:` na frente — o giget adiciona). */
-export const TEMPLATES_REPO = "iaxplor/agent-templates";
+export const TEMPLATES_REPO = "iaxplor/agent-core";
 
 /** Branch do repositório de templates que baixamos. */
 export const TEMPLATES_BRANCH = "main";
@@ -61,5 +61,5 @@ export const PROJECT_NAME_MIN = 3;
 export const PROJECT_NAME_MAX = 50;
 
 // --- URLs públicas --------------------------------------------------------
-export const DOCS_URL = "https://github.com/iaxplor/agent-templates";
+export const DOCS_URL = "https://github.com/iaxplor/agent-core";
 export const ISSUES_URL = "https://github.com/iaxplor/create-agent/issues";
