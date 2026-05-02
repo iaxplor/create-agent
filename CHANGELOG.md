@@ -4,6 +4,16 @@ CLI da IAxplor pra criar projetos de agente IA e gerenciar módulos opcionais. H
 
 ---
 
+## v0.10.1 — Internal doc cleanup
+
+Doc-only patch. Sanitização do `README.md`, `CHANGELOG.md`, issue #1 e PR descriptions removendo refs estratégicas/operacionais que não pertencem em release notes públicas (roadmap futuro, métricas absolutas de validação interna, taxonomia interna de fases). Doutrina arquitetural pública preservada (Doctor V1-V14, extension layer, runtime hooks, etc.).
+
+### Não-breaking
+
+Zero mudança de código funcional. Aluno em v0.10.0 não nota diferença.
+
+---
+
 ## v0.10.0 — Migração `iaxplor/agent-templates` → `iaxplor/agent-core`
 
 Templates passaram a viver no novo repositório `iaxplor/agent-core`. Atualização **transparente pro aluno** — basta usar o CLI v0.10.0+.
@@ -50,9 +60,9 @@ Toda a lógica de comandos (`create`, `add`, `upgrade`, `doctor`, `list`) e o do
 
 ---
 
-## v0.9.0 — Doctor V14: drift de versão de deps críticas (Fase 3 do versionamento determinístico)
+## v0.9.0 — Doctor V14: drift de versão de deps críticas
 
-Continua o trabalho do agent-templates v0.11.9 (upper bounds — Fase 1) e v0.12.0 (lockfile distribuído + Dockerfile `--frozen` — Fase 2). Esta release entrega a Fase 3: validator no `doctor` que detecta se aluno tem `pyproject.toml` ou `uv.lock` divergente das versões testadas pelo CI da IAxplor.
+Validator no `doctor` que detecta se aluno tem `pyproject.toml` ou `uv.lock` divergente das versões testadas pelo CI do template. Complementa upper bounds em deps de risco e lockfile distribuído já presentes no template.
 
 ### Adicionado
 

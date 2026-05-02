@@ -183,7 +183,7 @@ O comando:
 
 **Modo degradado**: se a tag da versão instalada não existir no repositório, o CLI opera sem snapshot base — qualquer arquivo diferente da nova versão é marcado como "modificado". Gera falsos positivos mas é seguro (nada é sobrescrito sem confirmação).
 
-> **Nota v0.5.0**: até v0.4.x, o `upgrade` não chamava 3 dos 4 utilitários que `add` chama (env vars, deps, validação `min_core_version`). Quando google-calendar 0.4.0 introduziu 4 env vars novas (`GCAL_CONFIRMATION_*`), o bug ficou visível. v0.5.0 fecha essa paridade — `add` e `upgrade` agora têm o mesmo comportamento de propagação.
+> **Nota v0.5.0**: até v0.4.x, o `upgrade` não chamava 3 dos 4 utilitários que `add` chama (env vars, deps, validação `min_core_version`). v0.5.0 fecha essa paridade — `add` e `upgrade` agora têm o mesmo comportamento de propagação.
 
 > **Nota v0.6.0**: comando `doctor` adicionado (read-only, sempre exit 0).
 
@@ -193,18 +193,18 @@ O comando:
 >
 > - **`agent/*` PROTECTED**: `upgrade --yes` NÃO sobrescreve mais arquivos em `agent/`. Se template do core trouxe atualizações, gera `<arquivo>.template` lateral. Comando `doctor` (V8) lembra dos pendentes.
 > - **`.gitignore` MERGED + security baseline**: append-only (preserva linhas custom do aluno) + reinjeta `credentials.json`/`client_secret_*.json`/`*.pem`/`*.key`/etc. mesmo se foram removidos.
-> - **`.env.example` dedup automático**: `add` e `upgrade` agora REMOVEM ocorrências duplicadas das vars do bloco gerenciado fora dele. Sem mais 38 ocorrências de `DOMAIN` em 167 linhas.
+> - **`.env.example` dedup automático**: `add` e `upgrade` agora REMOVEM ocorrências duplicadas das vars do bloco gerenciado fora dele.
 > - **`--yes` SPLIT** em 3 flags granulares: `--accept-new` (seguro, default em CI), `--overwrite-modified` (explícito, perigoso), `--delete-removed` (explícito). `--yes` legacy = alias dos 3 (compat).
 > - **Recovery**: se você foi vítima de upgrade que apagou `agent/instructions.py` em versão anterior, recupere via `git log --oneline -- agent/instructions.py` + `git checkout <hash>~1 -- agent/instructions.py`. Stash automático antes do upgrade continua funcionando: `git stash list` + `git stash apply`.
 >
-> Follow-ups: `doctor v2` (modelos não registrados, tools não importadas, migrations pendentes), `--json` output, primeiro vertical pack (clínica/odonto).
+> Follow-ups: `doctor v2` (modelos não registrados, tools não importadas, migrations pendentes), `--json` output.
 
 ## Convenção de nomenclatura de módulos
 
 Módulos novos devem seguir estas convenções:
 
-- **Diretório no repo**: `modules/<nome-kebab-case>/` (ex.: `modules/evolution-api/`, `modules/crm-plugazap/`)
-- **Arquivo de setup**: `{NOME_MODULO_UPPERCASE}_SETUP.md` (ex.: `EVOLUTION_SETUP.md`, `CRM_PLUGAZAP_SETUP.md`) — evita colisão quando múltiplos módulos forem instalados no mesmo projeto
+- **Diretório no repo**: `modules/<nome-kebab-case>/` (ex.: `modules/evolution-api/`, `modules/google-calendar/`)
+- **Arquivo de setup**: `{NOME_MODULO_UPPERCASE}_SETUP.md` (ex.: `EVOLUTION_SETUP.md`, `GOOGLE_CALENDAR_SETUP.md`) — evita colisão quando múltiplos módulos forem instalados no mesmo projeto
 - **`template.json` obrigatório** com campos: `name`, `version`, `description`, `requires`, `min_core_version`, `dependencies`, `env_vars`, `files`, `patches`
 - **Arquivos em `files/`** dentro do módulo, mapeados pra destinos no projeto via `files[]` do `template.json`
 
