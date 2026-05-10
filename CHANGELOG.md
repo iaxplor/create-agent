@@ -4,6 +4,41 @@ CLI da IAxplor pra criar projetos de agente IA e gerenciar módulos opcionais. H
 
 ---
 
+## v0.11.0 — `create-agent .` (instalar no diretório atual)
+
+Suporte a `npx @iaxplor/create-agent .` pra criar o projeto **no cwd**, sem subdiretório aninhado. Caso de uso principal: aluno IAxplor que clonou um repo Git vazio do GitHub e quer manter o vínculo com o remote — fluxo padrão do Método Núcleo.
+
+### Comportamento
+
+- `create-agent .`:
+  - `targetDir = process.cwd()`
+  - `projectName = path.basename(cwd)` — validado pelo mesmo regex/limites do modo subdir.
+  - Cwd precisa estar **vazio ou conter apenas `.git/`**. Outros arquivos abortam com lista dos conflitos.
+  - Se `agente.config.json` já existe → aborta com sugestão de usar `upgrade`.
+  - `git init` é **pulado** quando `.git/` já existe (preserva remote do clone).
+  - Cleanup em falha de fetch **não remove o cwd** (operação seguro pra cwd compartilhado).
+  - Mensagem final dois-modos: hereMode mostra `git push origin HEAD` direto, sem passos de criação de remote.
+- `create-agent <nome>`: comportamento idêntico à v0.10.x (sem regressão).
+
+### Mudanças de código
+
+- **`src/utils/validators.ts`**: nova função `validateCwdForHereMode(cwd)` com whitelist `Set([".git"])`.
+- **`src/commands/create.ts`**: refator pra `resolveTarget` separando `resolveHereMode` / `resolveSubdirMode`. Cleanup condicional, git init condicional, mensagem final dois-modos.
+- **`tests/create-here.test.ts`**: novo arquivo, 8 testes cobrindo AC-1 a AC-5, AC-7, AC-8.
+- **`tests/create-subdir.test.ts`**: novo arquivo, 5 testes de regressão do modo subdir (não havia testes antes).
+
+### Por que isso era importante
+
+O `ONBOARDING.md` do Método Núcleo já assumia esse fluxo (`npx ... .`), mas a CLI rejeitava `.` na validação de nome (regex + min 3 chars) e no `pathExists` check do targetDir. Resultado: caminho oficial do onboarding falhava sempre, todo aluno caía no error-handler genérico. Esta release fecha o gap.
+
+### Out of scope (futuras)
+
+- Whitelist relaxada (`.gitignore`, `README.md`, `LICENSE` no cwd) — começa estrito.
+- Flag `--name <slug>` pra override do project name.
+- Doctor V15 (verificar remote configurado em projetos hereMode).
+
+---
+
 ## v0.10.1 — Internal doc cleanup
 
 Doc-only patch. Sanitização do `README.md`, `CHANGELOG.md`, issue #1 e PR descriptions removendo refs estratégicas/operacionais que não pertencem em release notes públicas (roadmap futuro, métricas absolutas de validação interna, taxonomia interna de fases). Doutrina arquitetural pública preservada (Doctor V1-V14, extension layer, runtime hooks, etc.).

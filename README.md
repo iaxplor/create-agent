@@ -26,6 +26,25 @@ Após criação, configure as variáveis de ambiente (`.env`) e faça o deploy d
 - Apenas **letras minúsculas, números e hífen** (ex.: `meu-agente-01`)
 - Não pode começar ou terminar com hífen, nem ter hífen duplo consecutivo
 
+#### Instalar no diretório atual — `create-agent .` _(v0.11.0+)_
+
+Quando você clonou um repositório Git vazio do GitHub e quer que o projeto IAxplor fique nesse repo (sem subdiretório aninhado):
+
+```bash
+git clone git@github.com:SEU_USUARIO/meu-agente.git
+cd meu-agente
+npx @iaxplor/create-agent .
+```
+
+Diferenças do modo subdir:
+
+- O projeto é criado **no cwd** (sem criar subpasta nova).
+- O nome do projeto vem de `path.basename(cwd)` — precisa ser um slug válido (mesmas regras acima).
+- `git init` é **pulado** se o cwd já tem `.git/` (preserva o remote do clone).
+- Cwd precisa estar **vazio ou conter apenas `.git/`**. Qualquer outro arquivo aborta o comando com mensagem listando os conflitos. Se você inicializou o repo no GitHub com README/LICENSE/`.gitignore`, remova-os antes (`git rm` + commit).
+- Se já existir `agente.config.json` no cwd, o comando aborta com sugestão pra usar `upgrade` em vez de recriar.
+- A próxima ação é commit+push direto (`git push origin HEAD`) — sem precisar configurar remote.
+
 ### `add <module>` — instalar módulo em projeto existente
 
 ```bash

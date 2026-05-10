@@ -1,6 +1,6 @@
 {
   "name": "@iaxplor/create-agent",
-  "version": "0.10.1",
+  "version": "0.11.0",
   "description": "CLI IAxplor — cria projetos de agente de IA e instala módulos adicionais (Evolution API, etc.) a partir do template core.",
   "keywords": [
     "iaxplor",
